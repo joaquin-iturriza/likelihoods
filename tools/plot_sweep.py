@@ -5,6 +5,8 @@ Usage:
     python plot_sweep.py 1911_ewkinos_014
 """
 import json, sys, os
+# script lives in tools/; put the repo root on sys.path so experiment/misc import
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 from omegaconf import OmegaConf, open_dict
 from experiment import nLLsExperiment

@@ -35,7 +35,7 @@ from sklearn.feature_selection import mutual_info_regression
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 
-BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in tools/)
 
 NLL_NAMES    = ["Exp", "Obs", "ExpA", "ObsA"]
 COLORS       = ["#E05C5C", "#5588CC", "#E8A838", "#7B44CC"]

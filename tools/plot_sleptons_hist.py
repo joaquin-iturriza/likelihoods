@@ -2,7 +2,7 @@ import sys
 import os
 import numpy as np
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in tools/)
 sys.path.insert(0, BASE)
 from plots import plot_histograms_4outputs
 

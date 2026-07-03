@@ -28,7 +28,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.ticker import ScalarFormatter
 import yaml
 
-BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in tools/)
 MODELS_ONNX   = os.path.join(BASE_DIR, "models_onnx")
 
 SUBPLOT_TITLES = ["Expected", "Observed", "Expected Asimov", "Observed Asimov"]

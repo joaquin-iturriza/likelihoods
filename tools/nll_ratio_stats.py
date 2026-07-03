@@ -34,7 +34,7 @@ from validation_plots import (
 # BASE_DIR is the directory this script lives in, resolved from __file__ so it
 # works regardless of where the eos area is mounted (locally or on lxplus, where
 # it is /eos/user/j/joiturri/likelihoods).
-BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in tools/)
 MODELS_DIR   = os.path.join(BASE_DIR, "models_onnx")
 DEFAULT_ONNX = os.path.join(MODELS_DIR, "SUSY-2018-16_Sleptons_700k.onnx")
 
