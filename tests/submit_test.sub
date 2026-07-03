@@ -1,0 +1,8 @@
+executable            = /eos/user/j/joiturri/likelihoods/job_test.sh
+arguments             = $(ClusterId) $(ProcId)
+output                = /eos/user/j/joiturri/likelihoods/output/test_$(ClusterId).$(ProcId).out
+error                 = /eos/user/j/joiturri/likelihoods/error/test_$(ClusterId).$(ProcId).err
+log                   = /eos/user/j/joiturri/likelihoods/log/test_$(ClusterId).$(ProcId).log
+request_gpus          = 1
++JobFlavour           = "tomorrow"
+queue

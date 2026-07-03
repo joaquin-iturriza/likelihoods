@@ -1,0 +1,39 @@
+{
+  "autoMemoryEnabled": false,
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/eos/home-j/joiturri/likelihoods/.claude/hooks/figure_pair_guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "/eos/home-j/joiturri/likelihoods/.claude/hooks/auto_push.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/eos/home-j/joiturri/likelihoods/.claude/hooks/worktree_guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/eos/home-j/joiturri/likelihoods/.claude/hooks/md_guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

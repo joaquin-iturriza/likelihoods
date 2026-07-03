@@ -1,0 +1,37 @@
+# Allowlist for scripts/publish_main.sh — the ONLY paths that go into the public
+# `main` branch (a generated build artifact of `lxplus`). One path per line
+# (file or directory); '#' starts a comment. Keep `main` a clean, minimal,
+# runnable core. Everything else (condor/, sweep/, tools/, tests/, .claude/,
+# CLAUDE.md, scripts/, scratch/, paper drafts, one-off checks) stays on lxplus.
+
+# --- runnable train/eval core ---
+run.py
+experiment.py
+base_experiment.py
+base_plots.py
+dataset.py
+preprocessing.py
+losses.py
+plots.py
+wrappers.py
+misc.py
+logger.py
+mlflow_util.py
+
+# --- models + configs ---
+models
+config
+
+# --- intrinsic-dimension diagnostics (used by training.get_ID) ---
+IntrinsicDimDeep
+
+# --- ONNX deployment (the shippable product) ---
+nnAdapter.py
+preprocessing_nnAdapter.py
+export_onnx_from_run.py
+export_combined_onnx.py
+update_metadata.py
+
+# --- meta ---
+README.md
+.gitignore

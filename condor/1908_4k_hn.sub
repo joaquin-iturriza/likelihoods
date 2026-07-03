@@ -1,0 +1,8 @@
+executable            = /afs/cern.ch/user/j/joiturri/likelihoods/job_1908_4k_hn.sh
+arguments             = $(ClusterId) $(ProcId)
+output                = /afs/cern.ch/user/j/joiturri/likelihoods/output/1908_4k_hn_$(ClusterId).$(ProcId).out
+error                 = /afs/cern.ch/user/j/joiturri/likelihoods/error/1908_4k_hn_$(ClusterId).$(ProcId).err
+log                   = /afs/cern.ch/user/j/joiturri/likelihoods/log/1908_4k_hn_$(ClusterId).$(ProcId).log
+request_gpus          = 1
++JobFlavour           = "testmatch"
+queue

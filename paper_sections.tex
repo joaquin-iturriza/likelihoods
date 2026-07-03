@@ -1,0 +1,92 @@
+\subsection{NN architecture}
+
+We use simple Multilayer Perceptrons as likelihood interpolators, implemented
+with the \pytorch package. To ensure stable training dynamics as network width
+is varied, we adopt the Maximal Update Parametrization
+(\mup)~\cite{Yang2021mup}, in which weight matrices are initialised and
+scaled such that activation statistics remain well-behaved independent of the
+network width. Concretely, hidden-layer weights are initialised with Kaiming
+normal initialisation, while the readout layer weights and biases are
+initialised to zero.
+
+Each network takes as input the total yields in all analysis bins (unless some
+of them have been removed, see Sec.~\ref{sec:data}) and outputs eight values:
+predicted means $\bar\Delta_i$ and corresponding standard deviations
+$\sigma_i$ for each of the four $\Delta$s defined in
+Eqs.~\ref{eq:delta_exp}--\ref{eq:delta_obsA}. The standard deviations are
+passed through a softplus activation to enforce positivity.
+
+The network consists of a number of fully connected blocks, each containing a
+dense layer followed by an activation function. The number of blocks and the
+number of neurons per block vary depending on the analysis considered, as the
+optimal architecture depends on the complexity of the likelihood surface being
+interpolated. GELU is used as the activation function for most analyses; for
+the \slepton analysis, ELU activations and batch normalisation were found to
+perform better. The only hyperparameters optimised on a per-analysis basis are
+the L2 regularisation strength and the learning rate, for which a grid search
+is performed; all other training hyperparameters are fixed across analyses.
+
+\subsection{Preprocessing}
+\label{sec:preprocessing}
+
+Both the input bin yields and the output $\Delta$s are preprocessed before
+being fed to the network or used as training targets. We apply the following
+two sequential transformations:
+%
+\begin{enumerate}
+  \item \textbf{Signed log transform.} To compress the dynamic range of the
+    data while preserving sign information and handling negative values, we
+    apply
+    %
+    \begin{align}
+      f(x) = \mathrm{sgn}(x)\,\log(1 + |x|)\,.
+      \label{eq:log_trafo}
+    \end{align}
+    %
+    This transformation is exactly invertible via
+    $f^{-1}(y) = \mathrm{sgn}(y)\,(e^{|y|}-1)$.
+  \item \textbf{Standardisation.} The transformed values are standardised to
+    zero mean and unit variance, using statistics computed on the training set.
+\end{enumerate}
+%
+The network therefore operates entirely on standardised log-transformed
+quantities. At evaluation time, the predicted means $\bar\Delta_i$ are mapped
+back to physical values by applying the inverse transformations in reverse
+order. The predicted $\sigma_i$ are kept in the preprocessed space where they
+are used to compute the heteroscedastic loss.
+
+\subsection{Training}
+\label{sec:training}
+
+We train our networks using the AdamW optimiser with a cosine annealing
+learning rate schedule. The learning rate is linearly increased from zero to
+the peak value over $4\times10^3$ warm-up steps, after which a cosine decay
+is applied over the remaining training steps. We train for $2\times10^5$
+optimiser steps with a batch size of 2048. The loss function used is the
+heteroscedastic loss,
+%
+\begin{align}
+    \mathcal{L}_\mathrm{het}
+    = \frac{1}{\text{batch size}}
+      \sum_j^{\text{batch size}}
+      \frac{1}{4}\sum_{i}^{4}
+      \left[
+        \frac{\left(\Delta_{ij}^\mathrm{truth} -
+        \bar\Delta_{ij}^\mathrm{prediction}\right)^2}
+        {2\,\sigma_{ij}^2}
+        + \log \sigma_{ij}
+      \right],
+    \label{eq:het_loss}
+\end{align}
+%
+where $i$ enumerates the four $\Delta$s, $j$ enumerates samples in a batch,
+and $\sigma_{ij}$ is the predicted standard deviation for output $i$ of sample
+$j$. The first term penalises residuals weighted by the predicted uncertainty,
+while the second term prevents the network from trivially inflating $\sigma$.
+In the limit of constant $\sigma$, Eq.~\eqref{eq:het_loss} reduces to the
+standard MSE loss. The learned $\sigma(x)$ provides an estimate of the
+systematic uncertainty of the surrogate, capturing both noise in the training
+data and limitations in the network's expressivity. After training, we load
+the weights of the best-performing model as measured on the validation set
+and save it to disk together with its metadata as an ONNX file. A detailed
+description of the metadata is given in App.~\ref{app:onnx-metadata}.

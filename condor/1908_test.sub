@@ -1,0 +1,9 @@
+executable            = /afs/cern.ch/user/j/joiturri/likelihoods/job_1908_test.sh
+arguments             = $(ClusterId) $(ProcId)
+output                = /afs/cern.ch/user/j/joiturri/likelihoods/output/A/1908_test_TESTTTT_$(ClusterId).$(ProcId).out
+error                 = /afs/cern.ch/user/j/joiturri/likelihoods/error/A/1908_test_TESTTTT_$(ClusterId).$(ProcId).err
+log                   = /afs/cern.ch/user/j/joiturri/likelihoods/log/A/1908_test_TESTTTT_$(ClusterId).$(ProcId).log
+request_gpus          = 1
+gpus_minimum_memory = 20000
++JobFlavour           = "tomorrow"
+queue

@@ -1,0 +1,8 @@
+executable            = /afs/cern.ch/user/j/joiturri/likelihoods/test_job.sh
+arguments             = $(ClusterId) $(ProcId)
+output                = /afs/cern.ch/user/j/joiturri/likelihoods/output/testaaa_$(ClusterId).$(ProcId).out
+error                 = /afs/cern.ch/user/j/joiturri/likelihoods/error/testaaa_$(ClusterId).$(ProcId).err
+log                   = /afs/cern.ch/user/j/joiturri/likelihoods/log/testaaa_$(ClusterId).$(ProcId).log
+request_gpus          = 1
++JobFlavour           = "espresso"
+queue

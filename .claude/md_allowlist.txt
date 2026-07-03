@@ -1,0 +1,8 @@
+# md_guard escape hatch: repo-relative or absolute paths of NEW .md files the
+# user has explicitly approved. One per line. '#' starts a comment.
+# Adding a path here is the recorded act of "the user approved this doc" — do it
+# only after the user says so. Existing .md files and CLAUDE.md / README* /
+# .claude/ are always allowed and need no entry.
+#
+# Example:
+#   analysis/hpo_optima/FINDINGS.md
