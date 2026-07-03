@@ -212,8 +212,6 @@ for dataset in ["1911.12606-sleptons-200k-fluct20_"]:
                         f.write(f"""#!/bin/bash
                             cd {base_dir}
                             source ../jitu/amplitude_DSI/amplitudes_env/bin/activate
-                            singularity pull pdflatex.sif docker://astrotrop/pdflatex
-                            singularity shell pdflatex.sif
                             python {run_script} {params}
                             """)
                     os.chmod(sh_path, 0o755)

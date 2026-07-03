@@ -1,9 +1,10 @@
 import numpy as np, json, os, onnx, onnxruntime
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(HERE)  # repo root (script lives in tools/); data/ and models_onnx/ are here
 
 # --- Load yields and find closest points ---
-with open(f"{BASE}/yields_600_600_20_20.json") as f:
+with open(f"{HERE}/yields_600_600_20_20.json") as f:
     d = json.load(f)
 onshell  = next(x for x in d if x.get("model") == "onshell.onnx")
 target   = np.array(onshell["yields"])

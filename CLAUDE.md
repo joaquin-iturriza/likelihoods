@@ -294,13 +294,15 @@ GPU training runs as HTCondor jobs, submitted from **AFS**
   `scripts/sync_condor_to_afs.sh` to push it to AFS, then (from AFS) run the
   generator and submit. Confirm job counts with me before submitting.
 
-**Known bug (don't propagate; fix only if I ask):** every generator *except*
-`generate_jobs_1908.py` injects two stray lines into each job `.sh` —
-`singularity pull pdflatex.sif docker://astrotrop/pdflatex` and `singularity
-shell pdflatex.sif` — between the venv activation and `python run.py`. That
-re-downloads a LaTeX container on every job and opens an *interactive* shell that
-blocks the training command. It's also why a `pdflatex.sif` ends up in the repo.
-`generate_jobs_1908.py` has the clean 3-line body.
+**Fixed generator bug (was a `singularity` injection).** Every generator *except*
+`generate_jobs_1908.py` used to write two stray lines into each job `.sh` between
+the venv activation and `python run.py`: a `singularity pull` of a LaTeX container
+(`docker://astrotrop/pdflatex`) followed by an *interactive* `singularity shell`.
+That re-downloaded the container on every job and opened a blocking interactive
+shell before training could start (and is why a `pdflatex.sif` ended up in the
+repo). All generators now emit the clean 3-line body (`cd` → `source <venv>` →
+`python run.py`). Re-sync to AFS with `scripts/sync_condor_to_afs.sh` after editing
+a generator.
 
 ---
 

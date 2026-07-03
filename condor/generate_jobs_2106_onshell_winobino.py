@@ -204,8 +204,6 @@ for dataset in ["2106.01676-onshell-winobino-fluct25_-300k"]:
                         f.write(f"""#!/bin/bash
                             cd {base_dir}
                             source ../jitu/amplitude_DSI/amplitudes_env/bin/activate
-                            singularity pull pdflatex.sif docker://astrotrop/pdflatex
-                            singularity shell pdflatex.sif
                             python {run_script} {params}
                             """)
                     os.chmod(sh_path, 0o755)
