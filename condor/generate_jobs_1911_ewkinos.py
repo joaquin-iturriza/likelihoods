@@ -117,7 +117,7 @@ for dataset in ["1911.12606-EWKinos-1M-z4-nll400-delta200"]:
         log_dir = os.path.join(home_dir, f"log/{dataset}/{model}")
         run_script = os.path.join(base_dir, "run.py")
         # Ensure job directory exists
-        for path in [job_dir, output_dir, error_dir, log_dir]:
+        for path in [job_dir, output_dir, error_dir, log_dir, os.path.join(home_dir, "subs")]:
                 os.makedirs(path, exist_ok=True)
         
         for N, n_nodes, n_layers, flavour in zip(Ns, n_nodess, n_layerss, flavours):
@@ -202,10 +202,10 @@ for dataset in ["1911.12606-EWKinos-1M-z4-nll400-delta200"]:
                     params += f" exp_name={exp_name}_FINAL_{to_scientific(L2)}_{to_scientific(pars)}_l2_lr_grid_small_model_{to_scientific(N,0)}_N"
                     with open(sh_path, "w") as f:
                         f.write(f"""#!/bin/bash
-                            cd {base_dir}
-                            source ../jitu/amplitude_DSI/amplitudes_env/bin/activate
-                            python {run_script} {params}
-                            """)
+cd {base_dir}
+source ../jitu/amplitude_DSI/amplitudes_env/bin/activate
+python {run_script} {params}
+""")
                     os.chmod(sh_path, 0o755)
                     job_ids.append(job_id)
 
