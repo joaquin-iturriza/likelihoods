@@ -23,9 +23,101 @@ def undo_logit_bounded(nLLs, lo, hi):
     return lo + (hi - lo) / (1.0 + np.exp(-nLLs))
 
 
+def _is_per_output(trafos):
+    """True if `trafos` is a per-output spec (a mapping carrying 'per_output')."""
+    try:
+        return "per_output" in trafos
+    except TypeError:
+        return False
+
+
+def _apply_col_trafo(col, fn_str, scale):
+    """Forward per-column nLL trafo (standardization handled by the caller)."""
+    if fn_str == "log":
+        return np.log(col)
+    elif fn_str == "log_w_negatives":
+        return log_with_negatives(col)
+    elif fn_str == "asinh":
+        return np.arcsinh(col / scale)
+    else:
+        raise ValueError(f"unsupported per-output nLL trafo: {fn_str!r}")
+
+
+def _undo_col_trafo(col, fn_str, scale):
+    """Exact inverse of _apply_col_trafo."""
+    if fn_str == "log":
+        return np.exp(col)
+    elif fn_str == "log_w_negatives":
+        return undo_log_with_negatives(col)
+    elif fn_str == "asinh":
+        return scale * np.sinh(col)
+    else:
+        raise ValueError(f"unsupported per-output nLL trafo: {fn_str!r}")
+
+
+def _preprocess_nLLs_per_output(nLLs, spec):
+    """Apply a separate trafo pipeline to each nLL output column.
+
+    `spec` is a mapping with:
+      - per_output: list (length = n outputs) of trafo-lists, e.g.
+        [[log, standardization], [asinh, standardization], ...] applied to the
+        columns in order (after any target_indices restriction).
+      - asinh_scale: scalar scale s used by the 'asinh' trafo (default 1.0);
+        asinh(x/s) is linear for |x|<<s and logarithmic for |x|>>s.
+
+    standardization, where it appears, is applied per column at its position in
+    the pipeline; the per-column mean/std are returned for exact inversion.
+    """
+    per_output = [list(p) for p in spec["per_output"]]
+    scale = float(spec.get("asinh_scale", 1.0))
+    n = nLLs.shape[1]
+    assert len(per_output) == n, (
+        f"per_output length {len(per_output)} != number of nLL outputs {n}"
+    )
+    out = np.array(nLLs, dtype=np.float64)
+    mean = np.zeros(n)
+    std = np.ones(n)
+    for c in range(n):
+        col = out[:, c]
+        for fn_str in per_output[c]:
+            if fn_str == "standardization":
+                m = col.mean()
+                s = np.clip(col.std(), 1e-6, None)
+                col = (col - m) / s
+                mean[c], std[c] = m, s
+            else:
+                col = _apply_col_trafo(col, fn_str, scale)
+        out[:, c] = col
+    nll_bounds = {"per_output": per_output, "asinh_scale": scale}
+    assert np.isfinite(out).all()
+    return out, mean, std, nll_bounds
+
+
+def _undo_preprocess_nLLs_per_output(nLLs, mean, std, spec, nll_bounds):
+    """Exact inverse of _preprocess_nLLs_per_output."""
+    nll_bounds = nll_bounds or {}
+    per_output = [list(p) for p in spec["per_output"]]
+    scale = float(spec.get("asinh_scale", nll_bounds.get("asinh_scale", 1.0)))
+    n = nLLs.shape[1]
+    out = np.array(nLLs, dtype=np.float64)
+    for c in range(n):
+        col = out[:, c]
+        for fn_str in reversed(per_output[c]):
+            if fn_str == "standardization":
+                col = col * std[c] + mean[c]
+            else:
+                col = _undo_col_trafo(col, fn_str, scale)
+        out[:, c] = col
+    assert np.isfinite(out).all()
+    return out
+
+
 def preprocess_nLLs(nLLs, trafos=None):
     mean, std = 0.0, 1.0
     nll_bounds = {}
+
+    if trafos and _is_per_output(trafos):
+        return _preprocess_nLLs_per_output(nLLs, trafos)
 
     if trafos:
         for fn_str in trafos:
@@ -68,6 +160,9 @@ def undo_log_with_negatives(nLLs):
 
 
 def undo_preprocess_nLLs(nLLs, mean, std, trafos=None, nll_bounds=None):
+    if trafos and _is_per_output(trafos):
+        return _undo_preprocess_nLLs_per_output(nLLs, mean, std, trafos, nll_bounds)
+
     nll_bounds = nll_bounds or {}
     if trafos:
         for fn_str in reversed(trafos):

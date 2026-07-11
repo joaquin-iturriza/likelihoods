@@ -287,13 +287,19 @@ def main():
         val_mse         = result.get("val_mse")
         proc_val_losses = result.get("proc_val_losses")
 
-        # Use val_mse as the HPO objective (model quality in original units,
-        # independent of the heteroscedastic training loss scale).
-        # Fall back to val_loss if val_mse is not present.
-        observe_loss = float(val_mse) if val_mse is not None else val_loss
+        # HPO objective: pick the metric named by cfg["observe_metric"]
+        # (default val_rel_err — physical-space relative error, which rewards
+        # accuracy near |nLL|~0 and is comparable across preprocessings). Fall
+        # back to val_mse then val_loss so older runs still rank.
+        observe_metric = cfg.get("observe_metric", "val_rel_err")
+        observe_val = result.get(observe_metric)
+        if observe_val is None:
+            observe_val = val_mse if val_mse is not None else val_loss
+        observe_loss = float(observe_val)
         print(f"[run_trial] hp_{hp_idx:04d}  t_steps={t_steps}"
               f"  val_loss={val_loss:.6f}"
-              + (f"  val_mse={val_mse:.6e}" if val_mse is not None else ""))
+              + (f"  val_mse={val_mse:.6e}" if val_mse is not None else "")
+              + (f"  {observe_metric}={observe_loss:.6e}"))
 
         # -----------------------------------------------------------
         # 4. Report result to DyHPO surrogate

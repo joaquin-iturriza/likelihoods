@@ -325,18 +325,53 @@ class nLLsExperiment(BaseExperiment):
         )
         
     def _result_extra(self) -> dict:
-        """Compute val MSE on the best model for DyHPO ranking."""
+        """Metrics on the best model for DyHPO ranking.
+
+        Emits both the preprocessed-space val MSE (``val_mse``, legacy) and a
+        physical-space relative-error metric (``val_rel_err`` over all outputs,
+        ``val_rel_err_obs`` for the observed output). The relative metric is
+        |pred-truth|/(|truth|+eps) with a small numerical eps, so it rewards
+        accuracy where |nLL| is small (the near-UL physics) and is comparable
+        across different preprocessings — unlike preprocessed-space MSE.
+        """
+        eps = 1e-6
         try:
             self.model.eval()
             with torch.no_grad():
                 val_results = self._evaluate_single(self.val_loader, "val")
-            mse_values = [
-                split["preprocessed"]["mse"]
-                for split in val_results.values()
-                if "preprocessed" in split and "mse" in split["preprocessed"]
-            ]
+            # column position of the observed output (orig index 1) after any
+            # target_indices restriction
+            ti = list(self.cfg.data.get("target_indices") or range(4))
+            obs_pos = ti.index(1) if 1 in ti else None
+
+            mse_values = []
+            rel_mean, rel_med, rel_obs_mean, rel_obs_med = [], [], [], []
+            for split in val_results.values():
+                if "preprocessed" in split and "mse" in split["preprocessed"]:
+                    mse_values.append(split["preprocessed"]["mse"])
+                raw = split.get("raw", {})
+                t = np.asarray(raw.get("truth"))
+                p = np.asarray(raw.get("prediction"))
+                if t.size and p.size and t.shape == p.shape:
+                    rel = np.abs(p - t) / (np.abs(t) + eps)
+                    rel_mean.append(float(rel.mean()))
+                    rel_med.append(float(np.median(rel)))
+                    if obs_pos is not None and rel.ndim == 2 and obs_pos < rel.shape[1]:
+                        rel_obs_mean.append(float(rel[:, obs_pos].mean()))
+                        rel_obs_med.append(float(np.median(rel[:, obs_pos])))
+
+            extra = {}
             if mse_values:
-                return {"val_mse": float(np.mean(mse_values))}
+                extra["val_mse"] = float(np.mean(mse_values))
+            # mean is spiky (dominated by near-zero-truth points at small eps);
+            # median is the robust relative-error signal
+            if rel_mean:
+                extra["val_rel_err"] = float(np.mean(rel_mean))
+                extra["val_rel_err_med"] = float(np.mean(rel_med))
+            if rel_obs_mean:
+                extra["val_rel_err_obs"] = float(np.mean(rel_obs_mean))
+                extra["val_rel_err_obs_med"] = float(np.mean(rel_obs_med))
+            return extra
         except Exception:
             pass
         return {}
@@ -526,6 +561,14 @@ class nLLsExperiment(BaseExperiment):
                 )  
                 delta_rates.append(rate)
 
+            # absolute nLL error per output (physical units) — comparable across
+            # different nLL preprocessings (relative metrics blow up for the
+            # sign-crossing `obs` output, so track absolute error there too)
+            abs_err = np.abs(nLL_truth - nLL_pred)
+            abs_err_mean = abs_err.mean(axis=0)
+            abs_within1 = (abs_err < 1.0).mean(axis=0)
+            neg = nLL_truth < 0.0  # per-output mask of sign-crossing (obs) events
+
             # LOGGER.info(
             #     f"Mean absolute relative error on {dataset} {title} dataset, output {i}: {delta_abs_mean[i]:.4f}"
             # )
@@ -535,6 +578,13 @@ class nLLsExperiment(BaseExperiment):
                 f"Mean absolute relative error on {dataset} {title} dataset, output {i}: {delta_abs_mean[i]}"
                 )
                 LOGGER.info(f"Delta rate output {i} [{title} {dataset}]: {rates_str}")
+                n_neg = int(neg[:, i].sum())
+                neg_abs = float(abs_err[neg[:, i], i].mean()) if n_neg else float("nan")
+                LOGGER.info(
+                    f"Abs nLL error output {i} [{title} {dataset}]: "
+                    f"mean={abs_err_mean[i]:.4f}, frac|err|<1={abs_within1[i]:.4f}, "
+                    f"neg-subset mean={neg_abs:.4f} (n={n_neg})"
+                )
 
             #LOGGER.info(
             #    f"rate of events in delta interval on {dataset} {title} dataset:\t"
