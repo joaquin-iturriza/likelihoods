@@ -282,9 +282,10 @@ GPU training runs as HTCondor jobs, submitted from **AFS**
 (`/afs/cern.ch/user/j/joiturri/likelihoods`).
 
 - **Generators** (`condor/generate_jobs_*.py`, one per dataset family) sweep a
-  grid — learning rate (`training.lr`), L2 (`regularization_lambda`), `loss`,
-  width/depth — and write, per grid point, a `job_*.sh` + a `*.sub` into the AFS
-  `jobs/<dataset>/` and `subs/`. Each generator hard-codes `base_dir` (EOS repo)
+  grid — learning rate (`training.lr`) × L2 (`regularization_lambda`) — with the
+  architecture (`hidden_channels`, `hidden_layers`) and `loss` **held fixed** per
+  family (width/depth are not swept), and write, per grid point, a `job_*.sh` +
+  a `*.sub` into the AFS `jobs/<dataset>/` and `subs/`. Each generator hard-codes `base_dir` (EOS repo)
   and `home_dir` (AFS). `.sub` files request 1 GPU, exclude MIG, set
   `+JobFlavour` (usually `"tomorrow"`), and `condor_submit` after an interactive
   prompt. `generate_plot_jobs.py` emits eval-only re-plot jobs for a sweep.
