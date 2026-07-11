@@ -526,6 +526,14 @@ class nLLsExperiment(BaseExperiment):
                 )  
                 delta_rates.append(rate)
 
+            # absolute nLL error per output (physical units) — comparable across
+            # different nLL preprocessings (relative metrics blow up for the
+            # sign-crossing `obs` output, so track absolute error there too)
+            abs_err = np.abs(nLL_truth - nLL_pred)
+            abs_err_mean = abs_err.mean(axis=0)
+            abs_within1 = (abs_err < 1.0).mean(axis=0)
+            neg = nLL_truth < 0.0  # per-output mask of sign-crossing (obs) events
+
             # LOGGER.info(
             #     f"Mean absolute relative error on {dataset} {title} dataset, output {i}: {delta_abs_mean[i]:.4f}"
             # )
@@ -535,6 +543,13 @@ class nLLsExperiment(BaseExperiment):
                 f"Mean absolute relative error on {dataset} {title} dataset, output {i}: {delta_abs_mean[i]}"
                 )
                 LOGGER.info(f"Delta rate output {i} [{title} {dataset}]: {rates_str}")
+                n_neg = int(neg[:, i].sum())
+                neg_abs = float(abs_err[neg[:, i], i].mean()) if n_neg else float("nan")
+                LOGGER.info(
+                    f"Abs nLL error output {i} [{title} {dataset}]: "
+                    f"mean={abs_err_mean[i]:.4f}, frac|err|<1={abs_within1[i]:.4f}, "
+                    f"neg-subset mean={neg_abs:.4f} (n={n_neg})"
+                )
 
             #LOGGER.info(
             #    f"rate of events in delta interval on {dataset} {title} dataset:\t"
