@@ -106,6 +106,11 @@ def build_command(cfg, hp_params, run_dir, run_idx, result_path, t_steps,
 
     cmd = [sys.executable, run_script]
 
+    # Optional base config name (e.g. nLLs_B for per-output preprocessing)
+    config_name = cfg.get("config_name")
+    if config_name:
+        cmd += ["--config-name", str(config_name)]
+
     # Fixed params (excluding training.iterations — set below)
     skip_keys = {"training.iterations"}
     for key, val in cfg.get("fixed_params", {}).items():
