@@ -128,6 +128,44 @@ def _get_inv_fn(fn_str: str):
             raise ValueError(f"No known inverse for transform '{fn_str}'.")
 
 
+def _is_per_output(trafos) -> bool:
+    """True if `trafos` is a per-output spec (a mapping carrying 'per_output')."""
+    try:
+        return "per_output" in trafos
+    except TypeError:
+        return False
+
+
+def _undo_preprocess_nLLs_per_output(nLLs, mean, std, spec, nll_bounds):
+    """Undo a per-output nLL preprocessing spec (mirror of preprocessing.py).
+
+    `spec` carries ``per_output`` (a list, one trafo-list per output column) and
+    ``asinh_scale``. `nLLs`, `mean`, `std` are length-n arrays (per output).
+    Uses autograd.numpy so undo_preprocess_nLLs_errors can differentiate through
+    it (each column depends only on its own input → elementwise).
+    """
+    per_output = [list(p) for p in spec["per_output"]]
+    scale = float(spec.get("asinh_scale", (nll_bounds or {}).get("asinh_scale", 1.0)))
+    cols = []
+    for c in range(len(per_output)):
+        col = nLLs[c]
+        for fn_str in reversed(per_output[c]):
+            if fn_str == "standardization":
+                col = col * std[c] + mean[c]
+            elif fn_str == "asinh":
+                col = scale * anp.sinh(col)
+            elif fn_str == "log":
+                col = anp.exp(col)
+            elif fn_str == "log_w_negatives":
+                col = _undo_log_with_negatives(col)
+            else:
+                col = _get_inv_fn(fn_str)(col)
+        cols.append(col)
+    nLLs = anp.stack(cols)
+    assert np.isfinite(nLLs).all(), "Non-finite values after undo_preprocess_nLLs"
+    return nLLs
+
+
 def undo_preprocess_nLLs(
     nLLs: np.ndarray,
     mean: np.ndarray,
@@ -141,12 +179,16 @@ def undo_preprocess_nLLs(
     :param mean: per-output mean saved at training time
     :param std: per-output std saved at training time
     :param trafos: list of transform strings applied during training,
-        e.g. ``["log_w_negatives", "standardization"]`` or
-        ``["logit_bounded", "standardization"]``
+        e.g. ``["log_w_negatives", "standardization"]``, or a per-output mapping
+        ``{"per_output": [[log, standardization], [asinh, standardization], ...],
+        "asinh_scale": s}`` (each output column gets its own pipeline)
     :param nll_bounds: dict with ``"lo"`` and ``"hi"`` arrays required when
         ``"logit_bounded"`` is in trafos
     :returns: unpreprocessed nLL deltas, same shape as nLLs
     """
+    if trafos and _is_per_output(trafos):
+        return _undo_preprocess_nLLs_per_output(nLLs, mean, std, trafos, nll_bounds)
+
     nll_bounds = nll_bounds or {}
     if trafos:
         for fn_str in reversed(trafos):
