@@ -294,6 +294,12 @@ GPU training runs as HTCondor jobs, submitted from **AFS**
 - **Workflow:** edit the generator in `condor/`, run
   `scripts/sync_condor_to_afs.sh` to push it to AFS, then (from AFS) run the
   generator and submit. Confirm job counts with me before submitting.
+- **Always wait on submitted jobs.** After *any* `condor_submit` (single jobs or
+  a sweep), launch `scripts/wait_for_jobs.sh` **in the background** so the work is
+  tracked to completion — never fire-and-forget. Pass the submitted cluster IDs,
+  or `--constraint '<expr>'`, or `--sweep-dir <AFS sweep dir>`, or `--mine`. When
+  it returns, proceed to analysis (e.g. `sweep/analyze_sweep.py`). Waiting/polling
+  the queue is *not* the confirm-first action — only the `condor_submit` is.
 
 **Fixed generator bug (was a `singularity` injection).** Every generator *except*
 `generate_jobs_1908.py` used to write two stray lines into each job `.sh` between
