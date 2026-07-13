@@ -1,0 +1,81 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: winobino_minus_preproc_001
+n_trials: 30
+
+# Per-output nLL preprocessing (asinh for obs, log for the positives) via the
+# nLLs_B base config; HPO objective is physical relative error on obs (robust
+# median), so it optimises accuracy where |nLL|~0 (the near-UL physics).
+config_name: nLLs_B
+observe_metric: val_rel_err_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+fidelity_schedule:
+  t_steps: [400000]
+
+# Core fixed params (from the clean ewkinos_001 template, retargeted to
+# winobino-minus). nLL preprocessing comes from config_name=nLLs_B, so
+# data.nLL_trafos is intentionally NOT set here. Equal output weights.
+fixed_params:
+  # --- data ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[2106.01676-offshell-winobino-minus-300k-fluct20_]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# new knob: linear<->log transition scale of the obs asinh transform
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0
