@@ -162,7 +162,7 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
         "features_std": [s.tolist() for s in exp.prepd_std_features],
     }
     bounds = exp.prepd_nll_bounds[0] if exp.prepd_nll_bounds else {}
-    if bounds:
+    if "lo" in bounds:  # logit_bounded only; per-output spec carries no lo/hi
         stats["nLLs_lo"] = np.asarray(bounds["lo"]).tolist()
         stats["nLLs_hi"] = np.asarray(bounds["hi"]).tolist()
     p = new_onnx.metadata_props.add()
@@ -175,7 +175,9 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
     for trafo_fns in trafos.values():
         if isinstance(trafo_fns, list):
             feat_pipeline.extend(trafo_fns)
-    nll_pipeline = list(OmegaConf.to_container(cfg.data.get("nLL_trafos") or [], resolve=True))
+    # keep the container as-is: a flat list, or the per-output mapping
+    # {"per_output": [...], "asinh_scale": s} (list(dict) would drop to keys)
+    nll_pipeline = OmegaConf.to_container(cfg.data.get("nLL_trafos") or [], resolve=True)
 
     p = new_onnx.metadata_props.add()
     p.key = "preprocessing"

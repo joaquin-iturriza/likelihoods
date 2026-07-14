@@ -70,6 +70,26 @@ def inverse_preprocess_nLLs(prepd: np.ndarray, mean, std,
                              pipeline=None, nll_bounds=None) -> np.ndarray:
     if pipeline is None:
         pipeline = ["log_w_negatives", "standardization"]
+    # per-output spec: {"per_output": [[log, standardization], [asinh, ...], ...],
+    # "asinh_scale": s} — each output column has its own pipeline.
+    if isinstance(pipeline, dict) and "per_output" in pipeline:
+        per_output = [list(p) for p in pipeline["per_output"]]
+        scale = float(pipeline.get("asinh_scale", 1.0))
+        mean = np.asarray(mean); std = np.asarray(std)
+        x = prepd.astype(np.float64).copy()
+        for c in range(x.shape[1]):
+            col = x[:, c]
+            for step in reversed(per_output[c]):
+                if step == "standardization":
+                    col = col * std[c] + mean[c]
+                elif step == "asinh":
+                    col = scale * np.sinh(col)
+                elif step == "log":
+                    col = np.exp(col)
+                elif step == "log_w_negatives":
+                    col = inv_log_w_negatives(col)
+            x[:, c] = col
+        return x
     nll_bounds = nll_bounds or {}
     x = prepd.astype(np.float64)
     for step in reversed(pipeline):
