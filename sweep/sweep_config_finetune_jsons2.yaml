@@ -1,0 +1,75 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: finetune_jsons2_001
+n_trials: 16
+
+# Finetune the best offshell-winobino model (trial_0102) to extend coverage to the
+# new TChiWZoff points. Every trial warm-starts from the pretrained checkpoint.
+pretrain:
+  run_dir: /eos/user/j/joiturri/likelihoods/runs/winobino_minus_preproc_001/trial_0102
+  run_idx: 0
+
+# Preprocessing is FIXED (baked into nLLs_finetune: per-output [log,asinh,log,asinh],
+# asinh_scale=18.36171). It is NOT in the search space.
+config_name: nLLs_finetune
+observe_metric: val_loss        # HETEROSC val NLL: sensitive to the new points' fit
+
+dyhpo:
+  n_candidates: 200
+  seed: 42
+  n_startup: 6
+  total_budget: 5000
+
+# Single fidelity: the model/data are small, so each trial is one short finetune.
+fidelity_schedule:
+  t_steps: [15000]
+
+fixed_params:
+  # --- data: the 8000-old + 1010-new rehearsal mix ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[2106.01676-winobino-minus-jsons2-rehearsal]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  data.train_test_val: '[0.7,0.15,0.15]'
+  # --- model: identical arch to trial_0102 (required for exact weight load) ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 1024
+  training.optimizer: AdamW
+  training.scheduler: 'null'                  # constant LR (avoid reloading old cosine state)
+  training.regularization: L2
+  training.validate_every_n_steps: 250
+  training.es_patience: 100000000             # DyHPO controls run length via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  evaluation.batchsize: 256
+  plot: 'false'
+
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-05
+  high: 3.0e-03
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-08
+  high: 1.0e-03

@@ -198,7 +198,10 @@ class BaseExperiment:
                 make_base_shapes(base_model, delta_model, savefile=self.bsh_path)
                 LOGGER.info(f"Saved μP base shapes to {self.bsh_path}")
 
-                set_base_shapes(self.model, self.bsh_path, rescale_params=True)
+                # rescale only on fresh init; on warm start (e.g. finetuning from a
+                # pretrained model in another run_dir that lacks a local base_shapes.bsh)
+                # the loaded weights must NOT be re-rescaled.
+                set_base_shapes(self.model, self.bsh_path, rescale_params=not self.warm_start)
 
             LOGGER.info("Using μP-aware MLP")
 

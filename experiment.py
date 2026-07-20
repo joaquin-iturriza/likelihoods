@@ -47,6 +47,8 @@ TYPE_TOKEN_DICT = {
     '2106.01676-offshell-winobino-minus-300k-fluct20_': [0],
     '2106.01676-offshell-winobino-plus-fluct20_-300k': [0],
     '2106.01676-onshell-winobino-fluct25_-300k': [0],
+    '2106.01676-offshell-TChiWZoff-jsons2': [0],
+    '2106.01676-winobino-minus-jsons2-rehearsal': [0],
     "1911.12606-EWKinos-1M-fluct100_new-trim": [0],
     "aag": [0, 0, 1, 1, 0],
     "aagg": [0, 0, 1, 1, 0, 0],

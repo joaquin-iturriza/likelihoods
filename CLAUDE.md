@@ -71,7 +71,7 @@ The project is deliberately spread across two CERN filesystems:
 | Filesystem | Path | Holds |
 |-----------|------|-------|
 | **EOS** (this repo) | `/eos/home-j/joiturri/likelihoods` | All code, data, models, configs, `runs/`, sweep engine. The git repo. |
-| **AFS** | `/afs/cern.ch/user/j/joiturri/likelihoods` | HTCondor submission infra: job generators, generated `.sh`/`.sub`, logs, sweep state. **Not** a git checkout. |
+| **AFS** | `/afs/cern.ch/user/j/joiturri/likelihoods` | HTCondor submission infra: generated `.sh`/`.sub`, logs, sweep state. **Not** a git checkout. |
 
 - `/eos/home-j/joiturri/likelihoods` and `/eos/user/j/joiturri/likelihoods` are
   the **same physical directory** (same inode) — two aliases for the same EOS
@@ -79,9 +79,9 @@ The project is deliberately spread across two CERN filesystems:
 - **Why the split:** HTCondor at CERN refuses to submit from EOS, so all
   `condor_submit` calls run from AFS. A Condor job's `.sh` `cd`s back into the EOS
   repo, activates the venv, and runs `python run.py`.
-- **Source of truth is EOS.** The job *generators* are version-controlled in-repo
-  under `condor/`; the AFS copy is a deploy target. Sync with
-  `scripts/sync_condor_to_afs.sh` (EOS→AFS `rsync`). Everything AFS-side that is
+- **Source of truth is EOS.** The training + sweep code is version-controlled
+  in-repo (`run.py`, the train/eval stack, `sweep/`); Condor jobs read it directly
+  from EOS — nothing is deployed/synced to AFS. Everything AFS-side that is
   *generated* (`jobs/`, `subs/`, `error/`, `log/`, `output/`, `runs/`, `sweeps/`)
   is runtime junk — regenerable, never committed.
 
@@ -279,37 +279,25 @@ the **predecessor** solving the *identical* problem — yields → 4 nLL deltas
 ## HTCondor job submission (AFS)
 
 GPU training runs as HTCondor jobs, submitted from **AFS**
-(`/afs/cern.ch/user/j/joiturri/likelihoods`).
+(`/afs/cern.ch/user/j/joiturri/likelihoods`) — Condor refuses to submit from EOS.
+Jobs come from the **DyHPO sweep engine** (see [Sweeps & DyHPO](#sweeps--dyhpo)):
+`sweep/generate_sweep.py` reads a sweep-config YAML and writes one `trial_*.sh` +
+`trial_*.sub` per trial into the AFS sweep dir. Each `.sub` requests 1 GPU
+(excludes MIG, sets `+JobFlavour`, usually `"tomorrow"`); each `.sh` does an EOS
+pre-flight check → `source <venv>/bin/activate` →
+`python sweep/run_trial.py --sweep-config <cfg> --trial-idx <i>` (which invokes
+`run.py`). `run_trial.py` reads the sweep code straight from the EOS repo, so
+there is nothing to sync. A single hand-picked run is just a 1-trial sweep.
 
-- **Generators** (`condor/generate_jobs_*.py`, one per dataset family) sweep a
-  grid — learning rate (`training.lr`) × L2 (`regularization_lambda`) — with the
-  architecture (`hidden_channels`, `hidden_layers`) and `loss` **held fixed** per
-  family (width/depth are not swept), and write, per grid point, a `job_*.sh` +
-  a `*.sub` into the AFS `jobs/<dataset>/` and `subs/`. Each generator hard-codes `base_dir` (EOS repo)
-  and `home_dir` (AFS). `.sub` files request 1 GPU, exclude MIG, set
-  `+JobFlavour` (usually `"tomorrow"`), and `condor_submit` after an interactive
-  prompt. `generate_plot_jobs.py` emits eval-only re-plot jobs for a sweep.
-- **A job `.sh` does:** `cd <EOS repo>` → `source <venv>/bin/activate` →
-  `python run.py <hydra overrides>`.
-- **Workflow:** edit the generator in `condor/`, run
-  `scripts/sync_condor_to_afs.sh` to push it to AFS, then (from AFS) run the
-  generator and submit. Confirm job counts with me before submitting.
-- **Always wait on submitted jobs.** After *any* `condor_submit` (single jobs or
-  a sweep), launch `scripts/wait_for_jobs.sh` **in the background** so the work is
-  tracked to completion — never fire-and-forget. Pass the submitted cluster IDs,
-  or `--constraint '<expr>'`, or `--sweep-dir <AFS sweep dir>`, or `--mine`. When
-  it returns, proceed to analysis (e.g. `sweep/analyze_sweep.py`). Waiting/polling
-  the queue is *not* the confirm-first action — only the `condor_submit` is.
-
-**Fixed generator bug (was a `singularity` injection).** Every generator *except*
-`generate_jobs_1908.py` used to write two stray lines into each job `.sh` between
-the venv activation and `python run.py`: a `singularity pull` of a LaTeX container
-(`docker://astrotrop/pdflatex`) followed by an *interactive* `singularity shell`.
-That re-downloaded the container on every job and opened a blocking interactive
-shell before training could start (and is why a `pdflatex.sif` ended up in the
-repo). All generators now emit the clean 3-line body (`cd` → `source <venv>` →
-`python run.py`). Re-sync to AFS with `scripts/sync_condor_to_afs.sh` after editing
-a generator.
+- **Submitting jobs — confirm first.** Show me the command + job count and **ask
+  before any `condor_submit`**. Submit from an AFS cwd (EOS can't submit):
+  `cd <AFS sweep dir>/subs && for f in trial_*.sub; do condor_submit $f; done`.
+- **Always wait on submitted jobs.** After *any* `condor_submit`, launch
+  `scripts/wait_for_jobs.sh` **in the background** so the work is tracked to
+  completion — never fire-and-forget. Pass the submitted cluster IDs, or
+  `--constraint '<expr>'`, or `--sweep-dir <AFS sweep dir>`, or `--mine`. When it
+  returns, proceed to analysis (e.g. `sweep/analyze_sweep.py`). Waiting/polling the
+  queue is *not* the confirm-first action — only the `condor_submit` is.
 
 ---
 
@@ -390,8 +378,9 @@ same as submitting a Condor job.
 4. Regenerate the public core with `scripts/publish_main.sh` after core-facing
    changes land on `lxplus` (`--no-push` to review first).
 
-The AFS Condor side is **not** a branch — it's synced from `condor/` via
-`scripts/sync_condor_to_afs.sh` (see [Filesystem split](#filesystem-split-eos--afs)).
+The AFS Condor side is **not** a branch — it only holds generated jobs/logs/sweep
+state; Condor jobs read the training + sweep code directly from the EOS repo (see
+[Filesystem split](#filesystem-split-eos--afs)).
 
 Hooks in `.claude/` back these rules (`settings.json` → `hooks/`): `md_guard.sh`
 (no scattered `.md`), `auto_push.sh` (auto-push `lxplus`, never `main`),
