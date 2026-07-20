@@ -1,11 +1,11 @@
 cluster:
   auto_submit: false
-  gpus_minimum_memory: 4000
-  job_flavour: tomorrow
+  gpus_minimum_memory: 2000        # tiny model: fits a MIG slice easily
+  job_flavour: longlunch           # runs in minutes; short flavour schedules faster
   request_gpus: 1
-  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  requirements: 'True'             # allow MIG slices (many more available)
   priority: 10
-  request_memory: 16000
+  request_memory: 8000
 
 paths:
   afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
