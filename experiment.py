@@ -209,10 +209,30 @@ class nLLsExperiment(BaseExperiment):
             ):
                 assert self.cfg.data.incl_fvs, "DSI/FV_MLP model requires fvs"
 
+            # Finetuning: optionally PIN the input/output normalization to a
+            # pretrained model's stats (from its exported ONNX) instead of refitting
+            # from the current data, so old data is decoded exactly as before and is
+            # retained. Requires the same trafos as the pretrained model.
+            fx_nLL_mean = fx_nLL_std = fx_feat_mean = fx_feat_std = None
+            fixed_stats_onnx = self.cfg.data.get("fixed_stats_onnx")
+            if fixed_stats_onnx:
+                import onnx, json as _json
+                _m = onnx.load(fixed_stats_onnx)
+                _st = _json.loads({p.key: p.value for p in _m.metadata_props}["standardization"])
+                fx_nLL_mean = np.asarray(_st["nLLs_mean"]).ravel()
+                fx_nLL_std = np.asarray(_st["nLLs_std"]).ravel()
+                fx_feat_mean = np.asarray(_st["features_mean"]).ravel()
+                fx_feat_std = np.asarray(_st["features_std"]).ravel()
+                if target_indices != list(range(4)):
+                    fx_nLL_mean = fx_nLL_mean[target_indices]
+                    fx_nLL_std = fx_nLL_std[target_indices]
+                LOGGER.info(f"Pinning normalization to pretrained stats from {fixed_stats_onnx}")
+
             # preprocess data
             LOGGER.info(f"Preprocessing nLLs using trafos={self.cfg.data.nLL_trafos}")
             nLLs_prepd, prepd_mean, prepd_std, prepd_nll_bounds = preprocess_nLLs(
-                nLLs, trafos=self.cfg.data.nLL_trafos
+                nLLs, trafos=self.cfg.data.nLL_trafos,
+                fixed_mean=fx_nLL_mean, fixed_std=fx_nLL_std,
             )
 
             LOGGER.info(f"Preprocessing features using trafos={self.cfg.data.trafos}")
@@ -223,6 +243,8 @@ class nLLsExperiment(BaseExperiment):
                 self.type_token[0],
                 trafos=self.cfg.data.trafos,
                 incl_fvs=self.cfg.data.incl_fvs,
+                mean=fx_feat_mean,
+                std=fx_feat_std,
             )
             print("########################")
             print("prepd_mean_features:", prepd_mean_features)

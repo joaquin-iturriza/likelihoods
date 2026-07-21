@@ -55,7 +55,7 @@ def _undo_col_trafo(col, fn_str, scale):
         raise ValueError(f"unsupported per-output nLL trafo: {fn_str!r}")
 
 
-def _preprocess_nLLs_per_output(nLLs, spec):
+def _preprocess_nLLs_per_output(nLLs, spec, fixed_mean=None, fixed_std=None):
     """Apply a separate trafo pipeline to each nLL output column.
 
     `spec` is a mapping with:
@@ -67,6 +67,10 @@ def _preprocess_nLLs_per_output(nLLs, spec):
 
     standardization, where it appears, is applied per column at its position in
     the pipeline; the per-column mean/std are returned for exact inversion.
+
+    If `fixed_mean`/`fixed_std` (arrays of length n) are given, the standardization
+    step uses them instead of refitting from the data — needed for finetuning, so
+    the target normalization stays pinned to the pretrained model's stats.
     """
     per_output = [list(p) for p in spec["per_output"]]
     scale = float(spec.get("asinh_scale", 1.0))
@@ -74,6 +78,10 @@ def _preprocess_nLLs_per_output(nLLs, spec):
     assert len(per_output) == n, (
         f"per_output length {len(per_output)} != number of nLL outputs {n}"
     )
+    fixed = fixed_mean is not None and fixed_std is not None
+    if fixed:
+        fixed_mean = np.asarray(fixed_mean, dtype=np.float64).ravel()
+        fixed_std = np.asarray(fixed_std, dtype=np.float64).ravel()
     out = np.array(nLLs, dtype=np.float64)
     mean = np.zeros(n)
     std = np.ones(n)
@@ -81,8 +89,11 @@ def _preprocess_nLLs_per_output(nLLs, spec):
         col = out[:, c]
         for fn_str in per_output[c]:
             if fn_str == "standardization":
-                m = col.mean()
-                s = np.clip(col.std(), 1e-6, None)
+                if fixed:
+                    m, s = fixed_mean[c], float(np.clip(fixed_std[c], 1e-6, None))
+                else:
+                    m = col.mean()
+                    s = np.clip(col.std(), 1e-6, None)
                 col = (col - m) / s
                 mean[c], std[c] = m, s
             else:
@@ -112,12 +123,12 @@ def _undo_preprocess_nLLs_per_output(nLLs, mean, std, spec, nll_bounds):
     return out
 
 
-def preprocess_nLLs(nLLs, trafos=None):
+def preprocess_nLLs(nLLs, trafos=None, fixed_mean=None, fixed_std=None):
     mean, std = 0.0, 1.0
     nll_bounds = {}
 
     if trafos and _is_per_output(trafos):
-        return _preprocess_nLLs_per_output(nLLs, trafos)
+        return _preprocess_nLLs_per_output(nLLs, trafos, fixed_mean, fixed_std)
 
     if trafos:
         for fn_str in trafos:

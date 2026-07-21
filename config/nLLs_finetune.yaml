@@ -17,15 +17,20 @@ data:
   fvs_standardized:
     - log_w_negatives
     - standardization
+ # Match the pretrained model's transforms EXACTLY so the pinned stats are valid.
  nLL_trafos:
   per_output:
    - [log, standardization]        # exp   (>= 0)
    - [asinh, standardization]      # obs   (signed -> asinh(x/scale))
    - [log, standardization]        # expA  (>= 0)
-   - [asinh, standardization]      # obsA  (signed -> asinh; new data crosses zero)
+   - [log, standardization]        # obsA  (pretrained used log; new rows trimmed to >0)
   asinh_scale: 18.36171            # pretrained value, fixed
  incl_fvs: true
  target_indices: null
+ # Pin input/output normalization to the pretrained model's baked-in stats so OLD
+ # data is decoded exactly as before (retention); refitting on the mix is what
+ # degraded old.
+ fixed_stats_onnx: /eos/user/j/joiturri/likelihoods/models_onnx/SUSY-2019-09_Offshell_Winobino_Minus_asinh.onnx
 
 train: true
 training:
