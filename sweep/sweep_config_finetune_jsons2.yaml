@@ -35,7 +35,7 @@ dyhpo:
 
 # Single fidelity: the model/data are small, so each trial is one short finetune.
 fidelity_schedule:
-  t_steps: [15000]
+  t_steps: [3000]
 
 fixed_params:
   # --- data: the 8000-old + 1010-new rehearsal mix ---
@@ -51,17 +51,18 @@ fixed_params:
   model.net.hidden_layers: 5
   # --- training ---
   training.loss: HETEROSC
-  training.batchsize: 1024
+  training.batchsize: 256
   training.optimizer: AdamW
   training.scheduler: 'null'                  # constant LR (avoid reloading old cosine state)
   training.regularization: L2
-  training.validate_every_n_steps: 250
+  training.validate_every_n_steps: 100
   training.es_patience: 100000000             # DyHPO controls run length via fidelity
-  training.es_load_best_model: 'true'
+  training.es_load_best_model: 'false'        # keep the finetuned model, not the init
+                                              # (mixed val-loss favors the pretrained init)
   training.get_ID: 'false'
   training.save_preds_intermediate: 'false'
   training.save_intermediate: 'false'
-  evaluation.batchsize: 256
+  evaluation.batchsize: 16          # val/test splits are small (~90 rows)
   plot: 'false'
 
 search_space:

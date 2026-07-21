@@ -511,6 +511,13 @@ class BaseExperiment:
                     raise FileNotFoundError(model_path)
                 LOGGER.info(f"Loading optimizer from {model_path}")
                 self.optimizer.load_state_dict(ckpt["optimizer"])
+                # load_state_dict also restores the saved param_groups' lr — which for
+                # a finetune warm-start is the pretrained run's *annealed* lr (~0 at the
+                # end of a cosine schedule), freezing all updates. Restore the configured
+                # lr so the finetune actually trains.
+                for _pg in self.optimizer.param_groups:
+                    _pg["lr"] = self.cfg.training.lr
+                    _pg["initial_lr"] = self.cfg.training.lr
             except FileNotFoundError:
                 LOGGER.warning(
                     f"Cannot load optimizer from {model_path}(.gz), starting from scratch"
