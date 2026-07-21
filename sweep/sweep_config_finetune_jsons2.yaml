@@ -68,8 +68,8 @@ fixed_params:
 search_space:
 - name: training.lr
   type: float_log
-  low: 1.0e-05
-  high: 3.0e-03
+  low: 1.0e-06
+  high: 1.0e-03
 - name: training.regularization_lambda
   type: float_log
   low: 1.0e-08
