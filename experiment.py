@@ -49,6 +49,7 @@ TYPE_TOKEN_DICT = {
     '2106.01676-onshell-winobino-fluct25_-300k': [0],
     '2106.01676-offshell-TChiWZoff-jsons2': [0],
     '2106.01676-winobino-minus-jsons2-rehearsal': [0],
+    '2106.01676-winobino-minus-tchiwzoff-retrain': [0],
     "1911.12606-EWKinos-1M-fluct100_new-trim": [0],
     "aag": [0, 0, 1, 1, 0],
     "aagg": [0, 0, 1, 1, 0, 0],
@@ -70,6 +71,9 @@ DATASET_TITLE_DICT = {
     '1911.12606-sleptons-200k-fluct20_': r"1911.12606 Sleptons 200k",
     '2106.01676-offshell-higgsino-300k-fluct20_': r"2106.01676 Offshell Higgsinos",
     '2106.01676-offshell-winobino-minus-300k-fluct20_': r"2106.01676 Winobino Minus",
+    '2106.01676-offshell-TChiWZoff-jsons2': r"2106.01676 TChiWZoff",
+    '2106.01676-winobino-minus-jsons2-rehearsal': r"2106.01676 Winobino Minus + TChiWZoff (rehearsal)",
+    '2106.01676-winobino-minus-tchiwzoff-retrain': r"2106.01676 Winobino Minus + TChiWZoff",
     '2106.01676-offshell-winobino-plus-fluct20_-300k': r"2106.01676 Winobino Plus",
     '2106.01676-onshell-winobino-fluct25_-300k': r"2106.01676 Onshell Winobino",
     '1909.09226-leakage-10_': r"1909.09226",
@@ -156,6 +160,7 @@ class nLLsExperiment(BaseExperiment):
             self.prepd_nll_bounds,
             self.props,
         ) = ([], [], [], [], [], [], [], [], [], [])
+        self.presplit = []
 
         for dataset in self.cfg.data.dataset:
             # load data
@@ -175,14 +180,30 @@ class nLLsExperiment(BaseExperiment):
                 data_val_raw = np.load(data_path_val, allow_pickle=True)
                 data_test_raw = np.load(data_path_test, allow_pickle=True)
                 data_raw = np.concatenate([data_train_raw, data_val_raw, data_test_raw], axis=0)
+                # The split is FIXED by the files: rows stay in train|val|test order
+                # and must not be shuffled across that boundary. Needed whenever the
+                # train set oversamples a region (duplicated rows would otherwise leak
+                # into val/test) or when val/test hold out whole physics points.
+                presplit = (len(data_train_raw), len(data_val_raw), len(data_test_raw))
             else:
                 data_raw = np.load(data_path, allow_pickle=True)
+                presplit = None
 
             LOGGER.info(f"Loaded data with shape {data_raw.shape} from {data_path}")
 
-            # shuffle for reproducibility
-            np.random.seed(1234)
-            np.random.shuffle(data_raw)
+            if presplit is None:
+                # shuffle for reproducibility
+                np.random.seed(1234)
+                np.random.shuffle(data_raw)
+            else:
+                LOGGER.info(
+                    f"Using the on-disk train/val/test split {presplit} "
+                    f"(no shuffle: it would mix the splits)"
+                )
+                # shuffle *within* the train block only
+                rng = np.random.default_rng(1234)
+                data_raw[: presplit[0]] = data_raw[rng.permutation(presplit[0])]
+            self.presplit.append(presplit)
 
             # bring data into correct shape
             features = data_raw[:, :-8]
@@ -279,21 +300,31 @@ class nLLsExperiment(BaseExperiment):
 
         for idataset in range(self.n_datasets):
             n_data = self.features[idataset].shape[0]
+            presplit = self.presplit[idataset] if getattr(self, "presplit", None) else None
 
-            # desired train size
-            if self.cfg.data.subsample is None:
-                self.cfg.data.subsample = int(n_data * self.cfg.data.train_test_val[0])
-            n_train = int(self.cfg.data.subsample) if self.cfg.data.subsample is not None else int(n_data * self.cfg.data.train_test_val[0])
-            n_train = min(n_train, int(n_data * self.cfg.data.train_test_val[0]))  # cap
+            if presplit is not None:
+                # split fixed on disk: <dataset>.npy | _val.npy | _test.npy, in that
+                # order (see init_data). train_test_val/subsample do not apply.
+                n_tr, n_va, _ = presplit
+                train_idx = np.arange(0, n_tr)
+                val_idx   = np.arange(n_tr, n_tr + n_va)
+                test_idx  = np.arange(n_tr + n_va, n_data)
+                n_train = n_tr
+            else:
+                # desired train size
+                if self.cfg.data.subsample is None:
+                    self.cfg.data.subsample = int(n_data * self.cfg.data.train_test_val[0])
+                n_train = int(self.cfg.data.subsample) if self.cfg.data.subsample is not None else int(n_data * self.cfg.data.train_test_val[0])
+                n_train = min(n_train, int(n_data * self.cfg.data.train_test_val[0]))  # cap
 
-            # ratio val/train relative to config
-            val_ratio = self.cfg.data.train_test_val[2] / self.cfg.data.train_test_val[0]
-            n_val = max(int(n_train * val_ratio), 1)
+                # ratio val/train relative to config
+                val_ratio = self.cfg.data.train_test_val[2] / self.cfg.data.train_test_val[0]
+                n_val = max(int(n_train * val_ratio), 1)
 
-            # pick indices
-            train_idx = np.arange(0, n_train)
-            val_idx   = np.arange(n_train, n_train + n_val)
-            test_idx  = np.arange(n_train + n_val, n_data)  # remainder
+                # pick indices
+                train_idx = np.arange(0, n_train)
+                val_idx   = np.arange(n_train, n_train + n_val)
+                test_idx  = np.arange(n_train + n_val, n_data)  # remainder
 
             # slice preprocessed
             train_sets["features"].append(self.features_prepd[idataset][train_idx])
@@ -368,8 +399,15 @@ class nLLsExperiment(BaseExperiment):
             ti = list(self.cfg.data.get("target_indices") or range(4))
             obs_pos = ti.index(1) if 1 in ti else None
 
+            # Events with |truth| <= rel_min have no relative scale (delta-nLL == 0
+            # means the signal is invisible), and |p-t|/(|t|+eps) would report
+            # |p|/1e-6 for them — enough to dominate the metric the sweep selects
+            # on. Judge those by absolute error (val_abs_err) instead.
+            rel_min = float(self.cfg.evaluation.get("rel_min_truth", 1e-2))
+
             mse_values = []
             rel_mean, rel_med, rel_obs_mean, rel_obs_med = [], [], [], []
+            abs_mean, abs_med = [], []
             for split in val_results.values():
                 if "preprocessed" in split and "mse" in split["preprocessed"]:
                     mse_values.append(split["preprocessed"]["mse"])
@@ -377,12 +415,18 @@ class nLLsExperiment(BaseExperiment):
                 t = np.asarray(raw.get("truth"))
                 p = np.asarray(raw.get("prediction"))
                 if t.size and p.size and t.shape == p.shape:
-                    rel = np.abs(p - t) / (np.abs(t) + eps)
-                    rel_mean.append(float(rel.mean()))
-                    rel_med.append(float(np.median(rel)))
-                    if obs_pos is not None and rel.ndim == 2 and obs_pos < rel.shape[1]:
-                        rel_obs_mean.append(float(rel[:, obs_pos].mean()))
-                        rel_obs_med.append(float(np.median(rel[:, obs_pos])))
+                    err = np.abs(p - t)
+                    abs_mean.append(float(err.mean()))
+                    abs_med.append(float(np.median(err)))
+                    ok = np.abs(t) > rel_min
+                    rel = np.where(ok, err / (np.abs(t) + eps), np.nan)
+                    if ok.any():
+                        rel_mean.append(float(np.nanmean(rel)))
+                        rel_med.append(float(np.nanmedian(rel)))
+                        if obs_pos is not None and rel.ndim == 2 and obs_pos < rel.shape[1]:
+                            if ok[:, obs_pos].any():
+                                rel_obs_mean.append(float(np.nanmean(rel[:, obs_pos])))
+                                rel_obs_med.append(float(np.nanmedian(rel[:, obs_pos])))
 
             extra = {}
             if mse_values:
@@ -395,6 +439,9 @@ class nLLsExperiment(BaseExperiment):
             if rel_obs_mean:
                 extra["val_rel_err_obs"] = float(np.mean(rel_obs_mean))
                 extra["val_rel_err_obs_med"] = float(np.mean(rel_obs_med))
+            if abs_mean:
+                extra["val_abs_err"] = float(np.mean(abs_mean))
+                extra["val_abs_err_med"] = float(np.mean(abs_med))
             return extra
         except Exception:
             pass
@@ -569,20 +616,39 @@ class nLLsExperiment(BaseExperiment):
             # compute metrics over actual nLLs
             mse = np.mean((nLL_truth - nLL_pred) ** 2)
             l1 = np.mean(np.abs(nLL_truth - nLL_pred))
-            l1_rel = np.mean(np.abs(nLL_truth - nLL_pred) / np.abs(nLL_truth))
 
-            delta = (nLL_truth - nLL_pred) / np.maximum(nLL_truth, 1e-8)
+            # Relative error is only meaningful where the truth is bounded away from
+            # zero: a point with delta-nLL == 0 (no sensitivity to the signal) has no
+            # relative scale at all, and near-zero truth makes the ratio explode. Mask
+            # those out of every relative metric and report them via the absolute
+            # error below instead. `rel_min_truth` = 0 restores the old behaviour.
+            rel_min = float(self.cfg.evaluation.get("rel_min_truth", 1e-2))
+            rel_ok = np.abs(nLL_truth) > rel_min
+            denom = np.where(rel_ok, nLL_truth, np.nan)
+
+            l1_rel = np.nanmean(np.abs(nLL_truth - nLL_pred) / np.abs(denom))
+
+            delta = (nLL_truth - nLL_pred) / denom
             delta_abs = np.abs(delta)
-            delta_abs_mean = np.mean(delta_abs, axis=0)
-            print('delta_abs_mean:',delta_abs_mean)
-            
+            delta_abs_mean = np.nanmean(delta_abs, axis=0)
+            print('delta_abs_mean:', delta_abs_mean)
+            n_excl = (~rel_ok).sum(axis=0)
+            if n_excl.any():
+                LOGGER.info(
+                    f"Relative metrics on {dataset} {title}: excluded per output "
+                    f"{n_excl.tolist()} of {len(nLL_truth)} events with "
+                    f"|truth| <= {rel_min} (no relative scale)"
+                )
+
             delta_maxs = [1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2]
             delta_rates = []
             for delta_max in delta_maxs:
-                rate = np.mean(
-                    (delta > -delta_max) & (delta < delta_max),
+                # nanmean over the masked subset: rate among events that have a
+                # relative scale, not diluted by the ones that don't
+                rate = np.nanmean(
+                    np.where(rel_ok, (delta > -delta_max) & (delta < delta_max), np.nan),
                     axis=0
-                )  
+                )
                 delta_rates.append(rate)
 
             # absolute nLL error per output (physical units) — comparable across
@@ -620,7 +686,7 @@ class nLLsExperiment(BaseExperiment):
             for i in range(self.model.net.out_shape):
                 scale_i = np.abs(nLL_truth[:, i])
                 idx = np.argsort(scale_i)[-int(0.01 * len(scale_i)):]
-                delta_abs_mean_1percent.append(np.mean(np.abs(delta[idx, i])))
+                delta_abs_mean_1percent.append(np.nanmean(np.abs(delta[idx, i])))
 
             delta_abs_mean_1percent = np.array(delta_abs_mean_1percent)
             for i in range(self.model.net.out_shape):

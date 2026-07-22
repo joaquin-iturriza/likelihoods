@@ -1,0 +1,86 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: 'True'              # allow MIG slices (small model, many more slots)
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: retrain_tchiwzoff_001
+n_trials: 24
+
+# FULL retrain (no `pretrain:` block — every trial starts from scratch) on the
+# combined old winobino-minus + new TChiWZoff scan, built by
+# tools/build_retrain_dataset.py. Preprocessing is fixed by nLLs_retrain:
+# asinh(x/1.0) on all four outputs, which admits the delta-nLL == 0 rows that the
+# old `log` pipeline had to throw away. It is NOT swept.
+config_name: nLLs_retrain
+
+# Robust relative error over the outputs, restricted to events that have a
+# relative scale (|truth| > evaluation.rel_min_truth); the zero-truth rows are
+# covered by val_abs_err. Median, because the mean is spiky near |nLL| ~ 0.
+observe_metric: val_rel_err_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 8
+  total_budget: 10000
+
+# Multi-fidelity: cheap screening first, promote the survivors. A from-scratch fit
+# needs far more steps than the 3000-step finetunes did.
+fidelity_schedule:
+  t_steps: [20000, 80000, 300000]
+
+fixed_params:
+  # --- data (split is fixed on disk: <dataset>{,_val,_test}.npy) ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[2106.01676-winobino-minus-tchiwzoff-retrain]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0          # overridden by cosanneal_warmup_frac
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000
+  training.es_patience: 100000000             # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  evaluation.batchsize: 128                   # val/test are ~1.5k rows
+  plot: 'true'
+
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# Capacity is a real knob now: the target range widened from ~2 decades to ~4,
+# and the 5x64 net (19k params) was sized for the old data alone.
+- name: model.net.hidden_channels
+  type: categorical
+  choices: [64, 128, 256, 512]
+- name: model.net.hidden_layers
+  type: categorical
+  choices: [4, 5, 6, 8]
