@@ -131,27 +131,11 @@ def load_test_split(cfg: dict, standardization: dict, max_events: int | None):
     test_path = os.path.join(data_path, f"{dataset}_test.npy")
 
     if os.path.exists(val_path):
-        r0 = np.load(npy_path,  mmap_mode="r", allow_pickle=True)
-        r1 = np.load(val_path,  mmap_mode="r", allow_pickle=True)
-        r2 = np.load(test_path, mmap_mode="r", allow_pickle=True)
-        N  = len(r0) + len(r1) + len(r2)
-        np.random.seed(1234)
-        perm = np.random.permutation(N)
-        n0, n1 = len(r0), len(r1)
-
-        n_train   = int(N * train_frac)
-        if subsample:
-            n_train = min(int(subsample), n_train)
-        n_val     = max(int(n_train * val_frac / train_frac), 1)
-        test_perm = np.sort(perm[n_train + n_val:])
-
-        def get_row(i):
-            if i < n0:         return r0[i]
-            elif i < n0 + n1:  return r1[i - n0]
-            else:              return r2[i - n0 - n1]
-
-        rows = [get_row(i) for i in test_perm]
-        data_test = np.stack(rows)
+        # <dataset>{,_val,_test}.npy is a FIXED on-disk split: _test.npy IS the
+        # test set. Matches experiment.init_data, which honours the split rather
+        # than concatenating and reshuffling (the train block may oversample a
+        # region, so a reshuffle would leak duplicated train rows into test).
+        data_test = np.array(np.load(test_path, allow_pickle=True))
     else:
         mmap = np.load(npy_path, mmap_mode="r", allow_pickle=True)
         N    = len(mmap)
