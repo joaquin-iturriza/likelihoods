@@ -1,0 +1,98 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: workday
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: scan201816_ewkinos_001
+n_trials: 20
+
+# Full retrain of the ATLAS-SUSY-2018-16 *EWkino* model on the collaborator scan
+# ALONE — no old 1911.12606-EWKinos rows mixed in. Same search space as
+# retrain_tchiwzoff_001 and as the slepton sweep next to it.
+#
+# Only 30 of the 205 TChiWZoff points in the tarball carry the 2018-16 (44-region)
+# likelihood; the other 175 are ATLAS-SUSY-2019-09 and belong to the offshell
+# winobino model. That leaves 241 train rows over 22 mass points, all at
+# dm in {5, 10} GeV. This is the thinnest of the two channels by a wide margin
+# and it is run to get the number, not because a deployable model is expected:
+# 22 training points on a 44-input net, covering a sliver of the dm plane, cannot
+# constrain the regions the scan never visits. Read the test block (4 held-out
+# mass points) as the honest figure and expect it to be poor.
+#
+# nLLs_retrain supplies asinh preprocessing on all four outputs: step 0 is
+# signal-free, so 22 of the 241 train rows have delta-nLL == 0 exactly.
+config_name: nLLs_retrain
+observe_metric: val_rel_err_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 8
+  total_budget: 10000
+
+# 10k steps at batchsize 64 is ~2600 epochs over 241 rows; es_load_best_model
+# takes the metric at the best validation point.
+fidelity_schedule:
+  t_steps: [10000]
+
+fixed_params:
+  # --- data (split fixed on disk: <dataset>{,_val,_test}.npy, whole mass points
+  #     held out for val/test) ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[1911.12606-EWKinos-scan201816]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model (unchanged from the deployed EWkino model, for comparability) ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  # 241 train rows: _init_dataloader caps batchsize at n_train/2 = 120. 64 gives
+  # 3 batches per epoch.
+  training.batchsize: 64
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 100       # 100 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  # val is 43 rows and test 44, with drop_last=True on both loaders. Anything
+  # above 43 yields ZERO val batches and the trial reports no metric at all;
+  # 43 gives exactly 1 val batch (0 dropped) and 1 test batch (1 dropped).
+  evaluation.batchsize: 43
+  plot: 'true'
+
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0

@@ -1,0 +1,99 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: workday
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: scan201816_sleptons_001
+n_trials: 30
+
+# Full retrain of the ATLAS-SUSY-2018-16 *slepton* model on the collaborator scan
+# ALONE — no old 1911.12606-sleptons rows mixed in. Same search space as
+# retrain_tchiwzoff_001 so the two are comparable; only the data and the
+# data-size-driven knobs below differ.
+#
+# nLLs_retrain is reused for the preprocessing: the scan's step 0 is signal-free,
+# so delta-nLL == 0 exactly on 112 of the 1207 train rows, which `log` cannot
+# represent. asinh on all four outputs handles that and the signed obs/obsA.
+#
+# The dataset is ~170x smaller than what trained the deployed model (1207 train
+# rows / 112 mass points, vs 200k-491k), and its rows lie on 112 signal-strength
+# rays rather than filling the yield space. Treat a good val number here as
+# "fits these rays", not "generalises like the deployed model" — the test block
+# holds out whole mass points precisely so that distinction is measurable.
+config_name: nLLs_retrain
+observe_metric: val_rel_err_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+# Single fidelity => plain Bayesian optimisation, as in retrain_tchiwzoff_001.
+# 20k steps at batchsize 128 is ~2100 epochs over 1207 rows; es_load_best_model
+# means the reported metric is taken at the best validation point, so the extra
+# steps cost wall-clock, not accuracy.
+fidelity_schedule:
+  t_steps: [20000]
+
+fixed_params:
+  # --- data (split fixed on disk: <dataset>{,_val,_test}.npy, whole mass points
+  #     held out for val/test) ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[1911.12606-sleptons-scan201816]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model (unchanged from the deployed slepton model, for comparability) ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  # 1207 train rows: _init_dataloader caps batchsize at n_train/2 = 603, which
+  # would leave 2 batches per epoch. 128 gives 9.
+  training.batchsize: 128
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 200       # 100 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  # val is 264 rows and test 260, and both loaders use drop_last=True. 52 gives
+  # val 5 batches (4 rows dropped) and test 5 (0 dropped); the inherited 128
+  # would throw away a third of val.
+  evaluation.batchsize: 52
+  plot: 'true'
+
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0
