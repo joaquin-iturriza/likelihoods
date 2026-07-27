@@ -244,6 +244,13 @@ def standardization(features, return_mean_std=False, clip=True, use_previous_mea
     else:
         mean = features.mean(axis=0)
         std = features.std(axis=0)
+        # A column that is exactly constant carries no information; (x-mean)/std
+        # is 0/0 there. std=1 maps it to 0 and stays exactly invertible. Only
+        # triggers on std == 0, which otherwise divides by zero and trips the
+        # assert below, so this cannot change any run that currently works.
+        # Small scans hit this: a signal region no scanned mass point populates
+        # is identically 0 across the whole set.
+        std = np.where(std == 0.0, 1.0, std)
     if clip:
         std = np.clip(std, a_min=1e-6, a_max=None)  # avoid std=0.
     features = (features - mean) / std
