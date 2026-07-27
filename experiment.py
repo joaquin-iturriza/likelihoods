@@ -165,6 +165,8 @@ class nLLsExperiment(BaseExperiment):
             self.props,
         ) = ([], [], [], [], [], [], [], [], [], [])
         self.presplit = []
+        # per-dataset mu=0 baselines, one per output; see init_data
+        self.nLL_mu0 = []
 
         for dataset in self.cfg.data.dataset:
             # load data
@@ -213,6 +215,15 @@ class nLLsExperiment(BaseExperiment):
             features = data_raw[:, :-8]
             nLLs = data_raw[:, -8:] 
 
+            # Keep the mu=0 baselines before they are subtracted away. The network
+            # regresses the delta, but the *physical* quantity is the absolute nLL
+            # at mu=1, = baseline + delta. A relative error taken against that
+            # never divides by ~0, whereas the delta is exactly 0 on every
+            # signal-free scan row. Baselines are constant per dataset (they depend
+            # only on the analysis, not the point), so the median is exact for the
+            # scans and within ~1e-6 relative for the older fluctuated sets.
+            nLL_mu0 = np.median(nLLs[:, 0::2], axis=0)
+
             # process nLLs: subtract baseline, keep differences
             for i in range(4):
                 print(f'nLLs mu0 {i} range: {min(nLLs[:, 2*i])} - {max(nLLs[:, 2*i])}')
@@ -226,6 +237,8 @@ class nLLsExperiment(BaseExperiment):
             target_indices = list(self.cfg.data.get("target_indices") or range(4))
             if target_indices != list(range(4)):
                 nLLs = nLLs[:, target_indices]
+                nLL_mu0 = nLL_mu0[target_indices]
+            self.nLL_mu0.append(nLL_mu0)
 
             # ensure fvs if required
             if (
@@ -412,7 +425,8 @@ class nLLsExperiment(BaseExperiment):
             mse_values = []
             rel_mean, rel_med, rel_obs_mean, rel_obs_med = [], [], [], []
             abs_mean, abs_med = [], []
-            for split in val_results.values():
+            nll_mean, nll_med, nll_obs_mean, nll_obs_med = [], [], [], []
+            for idataset, split in enumerate(val_results.values()):
                 if "preprocessed" in split and "mse" in split["preprocessed"]:
                     mse_values.append(split["preprocessed"]["mse"])
                 raw = split.get("raw", {})
@@ -432,6 +446,24 @@ class nLLsExperiment(BaseExperiment):
                                 rel_obs_mean.append(float(np.nanmean(rel[:, obs_pos])))
                                 rel_obs_med.append(float(np.nanmedian(rel[:, obs_pos])))
 
+                    # Same error, but relative to the ABSOLUTE nLL at mu=1
+                    # (baseline + delta) rather than to the delta. The baseline is
+                    # O(200-700), so the denominator is never near 0 and no row has
+                    # to be masked out — unlike the delta metric above, which
+                    # discards every signal-free scan row and so is blind to
+                    # exactly the low-signal regime these scans add.
+                    base = (self.nLL_mu0[idataset]
+                            if idataset < len(self.nLL_mu0) else None)
+                    if base is not None and np.ndim(t) == 2 and len(base) == t.shape[1]:
+                        denom = np.abs(t + base)
+                        if np.all(denom > eps):
+                            rel_nll = err / denom
+                            nll_mean.append(float(rel_nll.mean()))
+                            nll_med.append(float(np.median(rel_nll)))
+                            if obs_pos is not None and obs_pos < rel_nll.shape[1]:
+                                nll_obs_mean.append(float(rel_nll[:, obs_pos].mean()))
+                                nll_obs_med.append(float(np.median(rel_nll[:, obs_pos])))
+
             extra = {}
             if mse_values:
                 extra["val_mse"] = float(np.mean(mse_values))
@@ -446,6 +478,14 @@ class nLLsExperiment(BaseExperiment):
             if abs_mean:
                 extra["val_abs_err"] = float(np.mean(abs_mean))
                 extra["val_abs_err_med"] = float(np.mean(abs_med))
+            # relative to the absolute nLL (baseline + delta): no masking, every
+            # validation row contributes
+            if nll_mean:
+                extra["val_rel_err_nll"] = float(np.mean(nll_mean))
+                extra["val_rel_err_nll_med"] = float(np.mean(nll_med))
+            if nll_obs_mean:
+                extra["val_rel_err_nll_obs"] = float(np.mean(nll_obs_mean))
+                extra["val_rel_err_nll_obs_med"] = float(np.mean(nll_obs_med))
             return extra
         except Exception:
             pass

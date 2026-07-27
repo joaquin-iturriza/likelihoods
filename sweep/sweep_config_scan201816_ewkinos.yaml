@@ -32,7 +32,12 @@ n_trials: 20
 # nLLs_retrain supplies asinh preprocessing on all four outputs: step 0 is
 # signal-free, so 22 of the 241 train rows have delta-nLL == 0 exactly.
 config_name: nLLs_retrain
-observe_metric: val_rel_err_obs_med
+# Relative error against the ABSOLUTE nLL at mu=1 (nLL_*_mu0 + delta), not
+# against the delta. The delta is exactly 0 on every signal-free scan row, so the
+# delta-relative metric had to mask |truth| <= 1e-2 and threw away a third of
+# validation -- precisely the low-signal regime this scan adds. The baseline is
+# O(200-700), so this denominator is never near 0 and every val row counts.
+observe_metric: val_rel_err_nll_obs_med
 
 dyhpo:
   n_candidates: 300
