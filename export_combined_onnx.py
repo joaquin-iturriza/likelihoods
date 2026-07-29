@@ -221,8 +221,25 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
 
     new_onnx = onnx.load("_tmp_combined.onnx")
 
-    KEYS_TO_DROP = {"starting_points", "standardization_mean", "standardization_std"}
-    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max"}
+    # KEYS_TO_REPLACE must list EVERY key written below, or the file gets it twice
+    # (inherited + ours) and consumers disagree depending on first- vs last-match.
+    # See the same guard in export_onnx_from_run.py.
+    KEYS_TO_DROP = {
+        "starting_points", "standardization_mean", "standardization_std",
+        "optimizer", "batch_size", "early_stopping_used", "seed", "training_duration",
+        "filtering_applied", "total_points", "points", "scans", "processes",
+        "folder_name", "input_folder", "output_folder", "buffer_size", "keep_files",
+        "bkg_unc_samples", "low_lim_samples", "spey_verbose_lvl",
+        "start method", "start_method", "scan_criterion", "cluster",
+        "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_VR",
+        "signal_leakage_VR_spread", "signal_leakage_CR_sign", "signal_leakage_VR_sign",
+        "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
+        "lower_limits", "upper_limits", "initial_lower_limits",
+        "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max", "model_version",
+    }
+    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max",
+                       "standardization", "preprocessing",
+                       "run_config", "run_config_a", "run_config_b"}
 
     for k, v in rafal_metadata.items():
         clean_key = k[len("rafal::"):] if k.startswith("rafal::") else k
@@ -269,7 +286,10 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
     for fns in trafos_a.values():
         if isinstance(fns, list):
             feat_pipeline.extend(fns)
-    nll_pipeline = list(OmegaConf.to_container(cfg_a.data.get("nLL_trafos") or [], resolve=True))
+    # Keep the container as-is: a flat list, or the per-output mapping
+    # {"per_output": [...], "asinh_scale": s}. list(dict) would collapse it to its
+    # KEYS and silently discard the pipeline description.
+    nll_pipeline = OmegaConf.to_container(cfg_a.data.get("nLL_trafos") or [], resolve=True)
 
     p = new_onnx.metadata_props.add()
     p.key = "preprocessing"
@@ -293,6 +313,10 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
     p = new_onnx.metadata_props.add()
     p.key = "run_config_b"
     p.value = OmegaConf.to_yaml(exp_b.cfg)
+
+    seen = [p.key for p in new_onnx.metadata_props]
+    dups = {k for k in seen if seen.count(k) > 1}
+    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to KEYS_TO_REPLACE"
 
     onnx.save(new_onnx, out_onnx)
     os.remove("_tmp_combined.onnx")

@@ -1,6 +1,7 @@
 import os
 import gzip
 import json
+import datetime
 import numpy as np
 import torch
 import onnx
@@ -130,9 +131,39 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
     # ------------------------------------------------------------------
     new_onnx = onnx.load("_tmp.onnx")
 
-    # Keys from Rafal's metadata that we drop or replace
-    KEYS_TO_DROP = {"starting_points", "standardization_mean", "standardization_std"}
-    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max"}
+    # Keys from the reference metadata that we drop or replace.
+    #
+    # KEYS_TO_REPLACE must list EVERY key this script writes below. Anything the
+    # script writes but does not list here ends up in the file *twice* — once
+    # inherited from the reference, once ours — and which one a consumer sees
+    # depends on whether it parses first- or last-match. That silently mismatched
+    # `standardization`/`preprocessing` against the wrong pipeline on real
+    # published models; first-match decoding gave 34-47% relative error where the
+    # correct spec gives <1%. Keep this set in sync with the writes below.
+    KEYS_TO_DROP = {
+        "starting_points", "standardization_mean", "standardization_std",
+        # operational details of the REFERENCE run — false for this model
+        "optimizer", "batch_size", "early_stopping_used", "seed", "training_duration",
+        "filtering_applied", "total_points", "points", "scans", "processes",
+        "folder_name", "input_folder", "output_folder", "buffer_size", "keep_files",
+        "bkg_unc_samples", "low_lim_samples", "spey_verbose_lvl",
+        "start method", "start_method", "scan_criterion", "cluster",
+        "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_VR",
+        "signal_leakage_VR_spread", "signal_leakage_CR_sign", "signal_leakage_VR_sign",
+        "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
+        "lower_limits", "upper_limits", "initial_lower_limits",
+        "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max", "model_version",
+    }
+    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max",
+                       "standardization", "preprocessing", "run_config",
+                       "model_author", "model_name", "model_parameters",
+                       "training_date",
+                       # mu=0 baselines: consumers rebuild the physical value as
+                       # nLL_*_mu0 + delta, so inheriting the reference model's
+                       # baselines silently offsets every absolute nLL. The
+                       # 2018-16 scans sit +0.918939 (=0.5*ln(2*pi)) above the
+                       # older data because spey's normalisation changed.
+                       "nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0"}
 
     # Rafal's metadata — strip prefix, skip dropped/replaced keys
     for k, v in rafal_metadata.items():
@@ -190,7 +221,57 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
             "are stored in the 'standardization' key."
         ),
     })
-    
+
+    # Model identity, derived from THIS run's config rather than inherited. Without
+    # this the file keeps the reference model's architecture/optimizer/batchsize,
+    # which describes a different network entirely.
+    net = cfg.model.net
+    act = str(net.get("activation", "gelu"))
+    model_params = {
+        "architecture": str(net._target_).rsplit(".", 1)[-1],
+        "hidden_channels": net.get("hidden_channels"),
+        "hidden_layers": net.get("hidden_layers"),
+        "activation": act,
+        "out_shape": 4,
+        "loss": str(cfg.training.get("loss")),
+        "optimizer": str(cfg.training.get("optimizer")),
+        "batchsize": cfg.training.get("batchsize"),
+        "lr": cfg.training.get("lr"),
+        "regularization": str(cfg.training.get("regularization")),
+        "regularization_lambda": cfg.training.get("regularization_lambda"),
+        "iterations": cfg.training.get("iterations"),
+    }
+    if isinstance(nll_pipeline, dict) and "asinh_scale" in nll_pipeline:
+        model_params["asinh_scale"] = nll_pipeline["asinh_scale"]
+    # mu=0 baselines measured from THIS run's data (init_data keeps them before
+    # subtracting). Constant per analysis, so the median is exact.
+    if getattr(exp, "nLL_mu0", None):
+        base = np.asarray(exp.nLL_mu0[0]).ravel()
+        for key, val in zip(["nLL_exp_mu0", "nLL_obs_mu0",
+                             "nLLA_exp_mu0", "nLLA_obs_mu0"], base):
+            p = new_onnx.metadata_props.add()
+            p.key = key
+            p.value = repr(float(val))
+
+    ident = {
+        "model_author": "Joaquin Iturriaga",
+        "model_name": f"{model_params['architecture']}_c{net.get('hidden_channels')}"
+                      f"_l{net.get('hidden_layers')}_{act}",
+        "model_parameters": json.dumps(model_params),
+        "training_date": datetime.datetime.fromtimestamp(
+            os.path.getmtime(model_path)).strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    for k, v in ident.items():
+        p = new_onnx.metadata_props.add()
+        p.key = k
+        p.value = str(v)
+
+    # Guard: the duplication bug above is easy to reintroduce by adding a write
+    # without updating KEYS_TO_REPLACE, and it fails silently. Fail loudly here.
+    seen = [p.key for p in new_onnx.metadata_props]
+    dups = {k for k in seen if seen.count(k) > 1}
+    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to KEYS_TO_REPLACE"
+
     onnx.save(new_onnx, out_onnx)
     os.remove("_tmp.onnx")
     
