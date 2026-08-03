@@ -17,7 +17,9 @@ in the combined output vector.
 """
 
 import argparse
+import datetime
 import gzip
+import inspect
 import json
 import os
 
@@ -159,6 +161,12 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
     dummy_features = torch.zeros(1, n_features, device=device)
     dummy_token = torch.zeros(1, dtype=torch.long, device=device)
 
+    export_kwargs = {}
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        # torch>=2.6 defaults to the dynamo exporter; stay on the TorchScript
+        # path the published models were produced with.
+        export_kwargs["dynamo"] = False
+
     torch.onnx.export(
         combined,
         (dummy_features, dummy_token, dummy_token),
@@ -172,6 +180,7 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
             "global_token": {0: "batch"},
             "nLLs": {0: "batch"},
         },
+        **export_kwargs,
     )
 
     # -----------------------------------------------------------------------
@@ -221,29 +230,17 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
 
     new_onnx = onnx.load("_tmp_combined.onnx")
 
-    # KEYS_TO_REPLACE must list EVERY key written below, or the file gets it twice
-    # (inherited + ours) and consumers disagree depending on first- vs last-match.
-    # See the same guard in export_onnx_from_run.py.
-    KEYS_TO_DROP = {
-        "starting_points", "standardization_mean", "standardization_std",
-        "optimizer", "batch_size", "early_stopping_used", "seed", "training_duration",
-        "filtering_applied", "total_points", "points", "scans", "processes",
-        "folder_name", "input_folder", "output_folder", "buffer_size", "keep_files",
-        "bkg_unc_samples", "low_lim_samples", "spey_verbose_lvl",
-        "start method", "start_method", "scan_criterion", "cluster",
-        "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_VR",
-        "signal_leakage_VR_spread", "signal_leakage_CR_sign", "signal_leakage_VR_sign",
-        "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
-        "lower_limits", "upper_limits", "initial_lower_limits",
-        "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max", "model_version",
-    }
-    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max",
-                       "standardization", "preprocessing",
-                       "run_config", "run_config_a", "run_config_b"}
+    # Shared with export_onnx_from_run.py — see update_metadata.py, which owns
+    # both sets. MODEL_OWNED_KEYS must cover EVERY key written below, or the file
+    # gets it twice (inherited + ours) and consumers disagree depending on first-
+    # vs last-match.
+    from update_metadata import REFERENCE_KEYS_TO_DROP, MODEL_OWNED_KEYS
 
     for k, v in rafal_metadata.items():
         clean_key = k[len("rafal::"):] if k.startswith("rafal::") else k
-        if clean_key in KEYS_TO_DROP or clean_key in KEYS_TO_REPLACE:
+        if clean_key in REFERENCE_KEYS_TO_DROP or clean_key in MODEL_OWNED_KEYS:
+            continue
+        if clean_key in ("run_config_a", "run_config_b"):
             continue
         p = new_onnx.metadata_props.add()
         p.key = clean_key
@@ -314,9 +311,60 @@ def main(run_dir_a, indices_a, run_dir_b, indices_b, rafal_onnx_path, out_onnx, 
     p.key = "run_config_b"
     p.value = OmegaConf.to_yaml(exp_b.cfg)
 
+    # mu=0 baselines, scattered into global output order like the bounds above.
+    # These used to be inherited from the reference model, which offsets every
+    # absolute nLL a consumer reconstructs as nLL_*_mu0 + delta.
+    # Each experiment's nLL_mu0 is ordered by its own target_indices, so a global
+    # output index maps to a local position exactly as CombinedNLLModel does it —
+    # assuming position i holds global output i is only right for a full 4-output
+    # run, and silently permutes the baselines otherwise.
+    full_mu0 = np.zeros(4)
+    have_mu0 = True
+    for exp, indices, targets in ((exp_a, indices_a, _target_indices(cfg_a)),
+                                  (exp_b, indices_b, _target_indices(exp_b.cfg))):
+        if not getattr(exp, "nLL_mu0", None):
+            have_mu0 = False
+            break
+        mu0 = np.asarray(exp.nLL_mu0[0]).ravel()
+        for idx in indices:
+            full_mu0[idx] = mu0[targets.index(idx)]
+    if have_mu0:
+        for key, val in zip(["nLL_exp_mu0", "nLL_obs_mu0",
+                             "nLLA_exp_mu0", "nLLA_obs_mu0"], full_mu0):
+            p = new_onnx.metadata_props.add()
+            p.key = key
+            p.value = repr(float(val))
+    else:
+        print("[WARN] no mu=0 baselines recovered — absolute nLLs will be unusable")
+
+    # Identity of THIS combined model, not the reference's.
+    net = cfg_a.model.net
+    act = str(net.get("activation", "gelu"))
+    arch = str(net._target_).rsplit(".", 1)[-1]
+    ident = {
+        "model_author": "Joaquin Iturriaga",
+        "model_name": f"{arch}_c{net.get('hidden_channels')}"
+                      f"_l{net.get('hidden_layers')}_{act}_combined",
+        "model_parameters": json.dumps({
+            "architecture": arch,
+            "hidden_channels": net.get("hidden_channels"),
+            "hidden_layers": net.get("hidden_layers"),
+            "activation": act,
+            "out_shape": 4,
+            "combined": {"model_a_indices": indices_a, "model_b_indices": indices_b},
+            "loss_a": str(cfg_a.training.get("loss")),
+            "loss_b": str(exp_b.cfg.training.get("loss")),
+        }),
+        "training_date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    for k, v in ident.items():
+        p = new_onnx.metadata_props.add()
+        p.key = k
+        p.value = str(v)
+
     seen = [p.key for p in new_onnx.metadata_props]
     dups = {k for k in seen if seen.count(k) > 1}
-    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to KEYS_TO_REPLACE"
+    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to MODEL_OWNED_KEYS"
 
     onnx.save(new_onnx, out_onnx)
     os.remove("_tmp_combined.onnx")
