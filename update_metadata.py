@@ -65,8 +65,13 @@ REFERENCE_KEYS_TO_DROP = {
     "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
     "lower_limits", "upper_limits", "initial_lower_limits",
     "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max",
-    # the reference likelihood configuration
-    "fit_bkg", "removeCRsVRs", "remove_channels", "merged",
+    # the reference likelihood configuration. NOT remove_channels/removeCRsVRs:
+    # nnAdapter._parseMetaData prunes smYields by remove_channels and _getSROrder
+    # derives the canonical input ordering from what is left, so dropping it
+    # silently lengthens the expected yield vector (by 6 SRs on the 2018-16
+    # EWkinos models, 3 CRs on 2018-04). It describes the input contract, which
+    # our scans share, not the reference sampling.
+    "fit_bkg", "merged",
     # the reference's own training details
     "optimizer", "batch_size", "early_stopping_used",
 }
