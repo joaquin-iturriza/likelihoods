@@ -160,44 +160,27 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
     # ------------------------------------------------------------------
     new_onnx = onnx.load("_tmp.onnx")
 
-    # Keys from the reference metadata that we drop or replace.
+    # Which reference keys are dropped, and which ones only we may write, is
+    # defined once in update_metadata.py (the publish-time normalizer) and
+    # imported here — the two stages disagreeing is what let stale keys through.
     #
-    # KEYS_TO_REPLACE must list EVERY key this script writes below. Anything the
-    # script writes but does not list here ends up in the file *twice* — once
-    # inherited from the reference, once ours — and which one a consumer sees
-    # depends on whether it parses first- or last-match. That silently mismatched
+    # MODEL_OWNED_KEYS must cover EVERY key this script writes below. Anything
+    # written but not listed there ends up in the file *twice* — once inherited
+    # from the reference, once ours — and which one a consumer sees depends on
+    # whether it parses first- or last-match. That silently mismatched
     # `standardization`/`preprocessing` against the wrong pipeline on real
     # published models; first-match decoding gave 34-47% relative error where the
-    # correct spec gives <1%. Keep this set in sync with the writes below.
-    KEYS_TO_DROP = {
-        "starting_points", "standardization_mean", "standardization_std",
-        # operational details of the REFERENCE run — false for this model
-        "optimizer", "batch_size", "early_stopping_used", "seed", "training_duration",
-        "filtering_applied", "total_points", "points", "scans", "processes",
-        "folder_name", "input_folder", "output_folder", "buffer_size", "keep_files",
-        "bkg_unc_samples", "low_lim_samples", "spey_verbose_lvl",
-        "start method", "start_method", "scan_criterion", "cluster",
-        "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_VR",
-        "signal_leakage_VR_spread", "signal_leakage_CR_sign", "signal_leakage_VR_sign",
-        "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
-        "lower_limits", "upper_limits", "initial_lower_limits",
-        "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max", "model_version",
-    }
-    KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max",
-                       "standardization", "preprocessing", "run_config",
-                       "model_author", "model_name", "model_parameters",
-                       "training_date",
-                       # mu=0 baselines: consumers rebuild the physical value as
-                       # nLL_*_mu0 + delta, so inheriting the reference model's
-                       # baselines silently offsets every absolute nLL. The
-                       # 2018-16 scans sit +0.918939 (=0.5*ln(2*pi)) above the
-                       # older data because spey's normalisation changed.
-                       "nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0"}
+    # correct spec gives <1%. The mu=0 baselines are in that set for the same
+    # reason: consumers rebuild the physical value as nLL_*_mu0 + delta, so
+    # inheriting the reference's baselines offsets every absolute nLL. The
+    # 2018-16 scans sit +0.918939 (=0.5*ln(2*pi)) above the older data because
+    # spey's normalisation changed.
+    from update_metadata import REFERENCE_KEYS_TO_DROP, MODEL_OWNED_KEYS
 
     # Rafal's metadata — strip prefix, skip dropped/replaced keys
     for k, v in rafal_metadata.items():
         clean_key = k[len("rafal::"):] if k.startswith("rafal::") else k
-        if clean_key in KEYS_TO_DROP or clean_key in KEYS_TO_REPLACE:
+        if clean_key in REFERENCE_KEYS_TO_DROP or clean_key in MODEL_OWNED_KEYS:
             continue
         p = new_onnx.metadata_props.add()
         p.key = clean_key
@@ -296,10 +279,10 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
         p.value = str(v)
 
     # Guard: the duplication bug above is easy to reintroduce by adding a write
-    # without updating KEYS_TO_REPLACE, and it fails silently. Fail loudly here.
+    # without updating MODEL_OWNED_KEYS, and it fails silently. Fail loudly here.
     seen = [p.key for p in new_onnx.metadata_props]
     dups = {k for k in seen if seen.count(k) > 1}
-    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to KEYS_TO_REPLACE"
+    assert not dups, f"duplicate metadata keys {sorted(dups)} — add them to MODEL_OWNED_KEYS"
 
     onnx.save(new_onnx, out_onnx)
     os.remove("_tmp.onnx")

@@ -1,11 +1,26 @@
 """
-Update metadata in all ONNX models in models_onnx/:
-  1. Strip the temporary 'rafal::' prefix from all copied keys
-  2. Drop starting_points, standardization_mean/std (removed entirely)
-  3. Drop operational/pipeline fields irrelevant for publication
-  4. Fix model_author, model_name, model_parameters, training_date, training_duration
-  5. Recompute x_min/x_max/y_min/y_max from Joaquin's training split (mmap, fast)
-  6. Add 'preprocessing' key describing the transform pipeline
+Publish-time metadata normalizer for every ONNX model in models_onnx/.
+
+Each file carries two kinds of metadata: keys inherited from the reference model
+of the same ATLAS analysis (analysis/channels/yields/patchsets — properties of
+the published workspace, true regardless of who generated the scan), and keys
+that describe *our* trained network and *our* training data. This script keeps
+the first kind, drops the parts of it that only described the reference scan,
+and rebuilds the second kind from the run config embedded in the file:
+
+  1. Classify keys as reference vs. ours — by name, not by a 'rafal::' prefix
+     (export_onnx_from_run.py already strips that prefix, so prefix-based
+     classification silently matched nothing and rebuilt neither set)
+  2. Drop reference keys that describe the reference sampling run or its
+     statistical-model configuration — false for our data (REFERENCE_KEYS_TO_DROP)
+  3. Rebuild model_author/name/parameters/training_date/training_duration
+  4. Recompute x_min/x_max/y_min/y_max from our training split (mmap, fast)
+  5. Recompute the mu=0 baselines from our data — inheriting them offsets every
+     absolute nLL a consumer reconstructs
+  6. Derive 'preprocessing' from the run config rather than assuming the default
+     pipeline (per-output/asinh runs do not use it)
+
+Every key ends up written exactly once; a guard at the end enforces that.
 """
 
 import os
@@ -21,51 +36,81 @@ MODELS_ONNX_DIR = os.path.join(BASE_DIR, "models_onnx")
 
 MODEL_AUTHOR = "Joaquin Iturriaga"
 
-# Keys copied from Rafal's metadata that are dropped entirely:
-#   - starting_points: large scan artifact, unnecessary in a published model
-#   - standardization_mean/std: Rafal's simple linear standardization, not what we do
-#   - folder_name, input_folder, output_folder: Rafal's pipeline paths, not meaningful to users
-#   - buffer_size, keep_files: Rafal's MCMC implementation details
-#   - bkg_unc_samples, low_lim_samples: Rafal's sampling parameters
-#   - processes: number of parallel processes Rafal used
-#   - spey_verbose_lvl: verbosity flag for Rafal's likelihood tool
-#   - "start method" (with space): typo duplicate of start_method
-KEYS_TO_DROP = {
-    "starting_points",
-    "standardization_mean",
-    "standardization_std",
-    "folder_name",
-    "input_folder",
-    "output_folder",
-    "buffer_size",
-    "keep_files",
-    "bkg_unc_samples",
-    "low_lim_samples",
-    "processes",
-    "spey_verbose_lvl",
-    "start method",          # typo version with space — kept as start_method below
+# Reference-model keys that never survive publication. export_onnx_from_run.py
+# imports this set, so the two stages cannot drift apart.
+#
+# Three groups:
+#   - the reference pipeline's plumbing (paths, buffers, verbosity, parallelism)
+#   - how the REFERENCE scan was sampled: point counts, seeds, the sampled yield
+#     box, the signal-leakage and SR/CR/VR smearing knobs. We generate our own
+#     scans, so every one of these describes a run that produced none of our data.
+#   - how the reference likelihood was CONFIGURED (fit_bkg, removeCRsVRs,
+#     remove_channels, merged). These are not sampling knobs — they change what
+#     the nLL targets mean — so carrying them over asserts something about our
+#     targets that we never checked.
+# standardization_mean/std are the reference's plain linear standardization,
+# superseded by our 'standardization' key.
+REFERENCE_KEYS_TO_DROP = {
+    # pipeline plumbing
+    "starting_points", "standardization_mean", "standardization_std",
+    "folder_name", "input_folder", "output_folder",
+    "buffer_size", "keep_files", "bkg_unc_samples", "low_lim_samples",
+    "processes", "spey_verbose_lvl",
+    # the reference sampling run ("start method" is a typo duplicate of start_method)
+    "start method", "start_method",
+    "points", "total_points", "scans", "seed", "cluster", "scan_criterion",
+    "filtering_applied", "model_version", "modified",
+    "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_CR_sign",
+    "signal_leakage_VR", "signal_leakage_VR_spread", "signal_leakage_VR_sign",
+    "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
+    "lower_limits", "upper_limits", "initial_lower_limits",
+    "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max",
+    # the reference likelihood configuration
+    "fit_bkg", "removeCRsVRs", "remove_channels", "merged",
+    # the reference's own training details
+    "optimizer", "batch_size", "early_stopping_used",
 }
 
-# These are replaced with values derived from our training run
-KEYS_TO_REPLACE = {"x_min", "x_max", "y_min", "y_max",
-                   "model_author", "model_name", "model_parameters",
-                   "training_date", "training_duration"}
+# Keys whose value must come from our run. Never inherited: either rebuilt here
+# or carried over verbatim from what the exporter wrote (see OWN_KEYS_KEPT).
+MODEL_OWNED_KEYS = {
+    "x_min", "x_max", "y_min", "y_max",
+    "model_author", "model_name", "model_parameters",
+    "training_date", "training_duration",
+    "standardization", "preprocessing", "run_config",
+    "nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0",
+}
 
-PREPROCESSING_META = json.dumps({
-    "features_pipeline": ["log_w_negatives", "standardization"],
-    "nLLs_pipeline": ["log_w_negatives", "standardization"],
-    "note": (
-        "log_w_negatives = log(|x|+1)*sign(x). "
-        "Standardization parameters (mean, std per feature/output) "
-        "are stored in the 'standardization' key."
-    ),
-})
+# Of those, the ones this script cannot recompute and copies through unchanged.
+OWN_KEYS_KEPT = {"standardization", "run_config"}
 
 
-def compute_training_minmax(cfg: dict) -> tuple[list, list, list, list]:
+def describe_preprocessing(cfg: dict) -> str:
+    """Preprocessing description derived from the run config.
+
+    Assuming the default log+standardize pipeline here would mislabel the
+    per-output runs (e.g. the asinh models), whose nLL pipeline is a
+    {"per_output": [...], "asinh_scale": s} mapping.
+    """
+    feat_pipeline = []
+    for trafo_fns in (cfg.get("data", {}).get("trafos") or {}).values():
+        if isinstance(trafo_fns, list):
+            feat_pipeline.extend(trafo_fns)
+    return json.dumps({
+        "features_pipeline": feat_pipeline,
+        "nLLs_pipeline": cfg.get("data", {}).get("nLL_trafos") or [],
+        "note": (
+            "log_w_negatives = log(|x|+1)*sign(x). "
+            "Standardization parameters (mean, std per feature/output) "
+            "are stored in the 'standardization' key."
+        ),
+    })
+
+
+def compute_training_stats(cfg: dict) -> tuple[list, list, list, list, list]:
     """
     Replicate experiment.py data loading + split to get per-feature and per-output
-    min/max over the training portion of the dataset.
+    min/max over the training portion of the dataset, plus the mu=0 baselines.
 
     Uses mmap_mode + permutation to avoid loading the full array into RAM:
     np.random.permutation with seed 1234 produces the same row ordering as
@@ -123,6 +168,10 @@ def compute_training_minmax(cfg: dict) -> tuple[list, list, list, list]:
 
     features = data_train[:, :-8]
     nLLs_raw = data_train[:, -8:].astype(float)
+    # mu=0 baselines, as experiment.init_data computes them (median of the even
+    # columns) and before the subtraction below overwrites the odd ones. Constant
+    # per analysis, so the median over the training rows is the exact value.
+    nLL_mu0 = np.median(nLLs_raw[:, 0::2], axis=0)
     for i in range(4):
         nLLs_raw[:, 2 * i + 1] -= nLLs_raw[:, 2 * i]
     nLLs = nLLs_raw[:, 1::2]   # 4 delta-nLL columns
@@ -132,6 +181,7 @@ def compute_training_minmax(cfg: dict) -> tuple[list, list, list, list]:
         features.max(axis=0).tolist(),
         nLLs.min(axis=0).tolist(),
         nLLs.max(axis=0).tolist(),
+        nLL_mu0.tolist(),
     )
 
 
@@ -175,16 +225,21 @@ def extract_model_info(cfg: dict) -> dict:
     # Estimate training duration from model checkpoint mtime vs start time
     training_duration = "unknown"
     run_dir = cfg.get("run_dir", "")
-    if run_dir and start_dt:
+    if run_dir:
         if not os.path.isabs(run_dir):
             run_dir = os.path.join(BASE_DIR, run_dir)
         model_ckpt = os.path.join(run_dir, "models", "model_run0.pt.gz")
         if os.path.exists(model_ckpt):
-            end_dt   = datetime.datetime.fromtimestamp(os.path.getmtime(model_ckpt))
-            total_s  = max(0, int((end_dt - start_dt).total_seconds()))
-            h, rem   = divmod(total_s, 3600)
-            m, s     = divmod(rem, 60)
-            training_duration = f"{h} hours {m} minutes {s} seconds"
+            end_dt = datetime.datetime.fromtimestamp(os.path.getmtime(model_ckpt))
+            if start_dt:
+                total_s = max(0, int((end_dt - start_dt).total_seconds()))
+                h, rem  = divmod(total_s, 3600)
+                m, s    = divmod(rem, 60)
+                training_duration = f"{h} hours {m} minutes {s} seconds"
+            if training_date == "unknown":
+                # Not every run_config carries run_name; fall back to the
+                # checkpoint mtime, which is what the exporter records.
+                training_date = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
     return {
         "model_name":         model_name,
@@ -195,21 +250,31 @@ def extract_model_info(cfg: dict) -> dict:
 
 
 def update_model(onnx_path: str) -> None:
-    m  = onnx.load(onnx_path)
-    md = {p.key: p.value for p in m.metadata_props}
+    m = onnx.load(onnx_path)
 
-    rafal_md  = {k[len("rafal::"):]: v for k, v in md.items() if k.startswith("rafal::")}
-    direct_md = {k: v for k, v in md.items() if not k.startswith("rafal::")}
+    # Classify by NAME, not by the 'rafal::' prefix. The exporter strips that
+    # prefix, so prefix-based classification found no reference keys at all: the
+    # drop list never fired and every key was re-emitted alongside its rebuilt
+    # twin. Files written before the prefix was dropped still carry it, hence
+    # both branches. Later duplicates win — in those older files our value was
+    # appended after the inherited one.
+    reference, own = {}, {}
+    for p in m.metadata_props:
+        if p.key.startswith("rafal::"):
+            reference[p.key[len("rafal::"):]] = p.value
+        else:
+            own[p.key] = p.value
+    inherited = {**reference, **own}
 
-    run_config_str = direct_md.get("run_config", "")
+    run_config_str = own.get("run_config", "")
     if not run_config_str:
         print(f"  WARNING: no run_config in {os.path.basename(onnx_path)}, skipping")
         return
 
     cfg = yaml.safe_load(run_config_str)
 
-    print("  Computing training min/max ...")
-    x_min, x_max, y_min, y_max = compute_training_minmax(cfg)
+    print("  Computing training stats ...")
+    x_min, x_max, y_min, y_max, nLL_mu0 = compute_training_stats(cfg)
     print(f"  x_min={x_min}")
     print(f"  x_max={x_max}")
     print(f"  y_min={y_min}")
@@ -220,44 +285,67 @@ def update_model(onnx_path: str) -> None:
     print(f"  training_date={model_info['training_date']}")
     print(f"  training_duration={model_info['training_duration']}")
 
-    # Clean rafal metadata: strip prefix, skip dropped and replaced keys
-    clean_rafal = {
-        k: v for k, v in rafal_md.items()
-        if k not in KEYS_TO_DROP and k not in KEYS_TO_REPLACE
+    # mu=0 baselines. The exporter took its median over the whole dataset while
+    # this runs over the training rows, so the two can disagree in the last
+    # digits on datasets where mu0 is not bit-for-bit constant. Keep the stored
+    # value when it agrees to within MU0_TOL and only overwrite a genuinely wrong
+    # one — an inherited baseline is off by ~0.92 (spey's changed normalisation),
+    # orders of magnitude outside the tolerance.
+    MU0_TOL = 1e-3
+    mu0_keys = ["nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0"]
+    mu0_final = {}
+    for key, computed in zip(mu0_keys, nLL_mu0):
+        stored = own.get(key, inherited.get(key))
+        try:
+            stored_val = float(str(stored).strip('"'))
+        except (TypeError, ValueError):
+            stored_val = None
+        if stored_val is not None and abs(stored_val - computed) <= MU0_TOL:
+            mu0_final[key] = stored
+        else:
+            mu0_final[key] = repr(float(computed))
+            print(f"  NOTE: {key} {stored} -> {mu0_final[key]} (recomputed from our data)")
+
+    # Everything the reference contributes, minus what only described its own run
+    # and minus anything we own.
+    rebuilt = {
+        k: v for k, v in inherited.items()
+        if k not in REFERENCE_KEYS_TO_DROP and k not in MODEL_OWNED_KEYS
     }
+
+    for k in OWN_KEYS_KEPT:
+        if k in own:
+            rebuilt[k] = own[k]
+        else:
+            print(f"  WARNING: '{k}' missing — the model cannot be decoded without it")
+
+    rebuilt["model_author"]      = MODEL_AUTHOR
+    rebuilt["model_name"]        = model_info["model_name"]
+    rebuilt["model_parameters"]  = model_info["model_parameters"]
+    # Prefer what the exporter recorded: it read the checkpoint mtime at export
+    # time, whereas re-reading it now picks up any later touch of the file (a
+    # re-gzip moved one of these dates by five months). Recompute only to fill a
+    # missing or unknown value.
+    for key in ("training_date", "training_duration"):
+        stored = own.get(key, "").strip('"')
+        rebuilt[key] = stored if stored and stored != "unknown" else model_info[key]
+    rebuilt["preprocessing"]     = describe_preprocessing(cfg)
+    for key, val in [("x_min", x_min), ("x_max", x_max),
+                     ("y_min", y_min), ("y_max", y_max)]:
+        rebuilt[key] = json.dumps(val)
+    rebuilt.update(mu0_final)
 
     # Clear all metadata and rebuild
     while len(m.metadata_props) > 0:
         m.metadata_props.pop()
-
-    def add(key: str, value: str) -> None:
+    for k, v in rebuilt.items():
         p = m.metadata_props.add()
-        p.key   = key
-        p.value = str(value)
+        p.key   = k
+        p.value = str(v)
 
-    # 1. Rafal's analysis metadata (no prefix, cleaned)
-    for k, v in clean_rafal.items():
-        add(k, v)
-
-    # 2. Fixed model identity fields
-    add("model_author",       MODEL_AUTHOR)
-    add("model_name",         model_info["model_name"])
-    add("model_parameters",   model_info["model_parameters"])
-    add("training_date",      model_info["training_date"])
-    add("training_duration",  model_info["training_duration"])
-
-    # 3. Training data range (computed from our split)
-    add("x_min", json.dumps(x_min))
-    add("x_max", json.dumps(x_max))
-    add("y_min", json.dumps(y_min))
-    add("y_max", json.dumps(y_max))
-
-    # 4. Joaquin's model keys
-    for k, v in direct_md.items():
-        add(k, v)
-
-    # 5. Preprocessing description
-    add("preprocessing", PREPROCESSING_META)
+    seen = [p.key for p in m.metadata_props]
+    dups = {k for k in seen if seen.count(k) > 1}
+    assert not dups, f"duplicate metadata keys {sorted(dups)}"
 
     onnx.save(m, onnx_path)
     print(f"  Saved ({len(m.metadata_props)} metadata keys)")
