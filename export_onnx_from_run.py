@@ -1,5 +1,6 @@
 import os
 import gzip
+import inspect
 import json
 import datetime
 import numpy as np
@@ -14,6 +15,27 @@ from misc import get_device
 def load_model_gz(path, device):
     with gzip.open(path, "rb") as f:
         return torch.load(f, map_location=device)
+
+
+class ExportAdapter(torch.nn.Module):
+    """(features, global_token) -> nLLs, the published ONNX interface.
+
+    The trained wrapper's forward is (inputs, type_token, global_token, attn_mask)
+    and ignores everything but `inputs`. The old TorchScript exporter tolerated
+    being handed fewer args than the signature declares; torch>=2.6 exports via
+    torch.export by default and binds arguments strictly, so it fails with
+    "missing a required argument: 'global_token'". Adapt the signature here
+    instead of feeding a third input the consumers don't send. (global_token is
+    unused, so the tracer prunes it and the graph keeps `features` alone, exactly
+    as in the published models_onnx/ files.)
+    """
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, features, global_token):
+        return self.model(features, global_token, global_token)
 
 
 def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
@@ -84,8 +106,14 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
         device=device,
     )
     
+    export_kwargs = {}
+    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
+        # torch>=2.6 defaults to the dynamo exporter. Stay on the TorchScript
+        # path the published models_onnx/ files were produced with.
+        export_kwargs["dynamo"] = False
+
     torch.onnx.export(
-        exp.model,
+        ExportAdapter(exp.model),
         (dummy_features, dummy_global_token),
         "_tmp.onnx",
         opset_version=17,
@@ -96,6 +124,7 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
             "global_token": {0: "batch"},
             "nLLs": {0: "batch"},
         },
+        **export_kwargs,
     )
     
     # ------------------------------------------------------------------
@@ -285,7 +314,16 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python export_onnx_from_run.py <run_dir> <rafal_onnx> [run_idx]")
+        print("Usage: python export_onnx_from_run.py <run_dir> <reference_onnx> [run_idx]")
+        print()
+        print("  run_dir        runs/<exp>/<run>/ — must still hold config_<idx>.yaml")
+        print("                 and models/model_run<idx>.pt(.gz)")
+        print("  reference_onnx one of Rafal's ONNX models for the SAME analysis; it is")
+        print("                 read only as a metadata donor (analysis/channels/yields/")
+        print("                 patchsets/license). Nothing of its network is used.")
+        print("  run_idx        checkpoint index, default 0")
+        print()
+        print("Writes <run_dir>/models/model_with_metadata.onnx")
         sys.exit(1)
 
     main(sys.argv[1], sys.argv[2], run_idx=int(sys.argv[3]) if len(sys.argv) > 3 else 0)
