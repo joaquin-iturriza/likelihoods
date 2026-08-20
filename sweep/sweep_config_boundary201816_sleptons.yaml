@@ -1,0 +1,101 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: boundary201816_sleptons_001
+n_trials: 20
+
+# Fresh model for the ATLAS-SUSY-2018-16 *slepton* channel on the new collaborator
+# boundary scan, deduplicated (170802 -> 152523 rows; the raw file repeats ~10.7%
+# of rows, including the signal-free anchor 160 times, which would otherwise
+# straddle the random train/val/test split).
+#
+# Like its EWkino twin this scan is concentrated at the sensitivity boundary, but
+# lower: 76.7% of points at 2 < Z < 3 and 14.3% at 1 < Z < 2, with essentially no
+# tail (10 rows above Z = 5). delta_exp is correspondingly compressed — median
+# 2.99, p90 4.39 — so this is a much narrower target range than the old
+# 1911.12606-sleptons data. Trained standalone; no old rows mixed in.
+#
+# Structure copied from winobino_minus_preproc_001; the only deltas are the
+# dataset, the base config (nLLs_C, see below), the objective and the asinh range.
+config_name: nLLs_C
+
+# Relative error against the ABSOLUTE nLL at mu=1 (nLL_obs_mu0 + delta). This
+# channel's obs delta has median 0.42 with 39.7% of rows negative, so it crosses
+# zero right where the data is densest and a delta-relative metric would be
+# dominated by near-zero denominators. The baseline is O(205), so this
+# denominator is never near 0.
+observe_metric: val_rel_err_nll_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+# 61009 train rows at batchsize 2048 is ~30 batches/epoch, so 200k steps is
+# ~6700 epochs — the same epoch budget winobino_minus_preproc_001 used.
+fidelity_schedule:
+  t_steps: [200000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[1911.12606-sleptons-153k-boundaryscan]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: mup_mlp defaults are already gelu / dropout_prob=0 / batchnorm=false;
+  #     width and depth pinned to the deployed slepton model for comparability ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000      # 200 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+# Activation, loss, dropout and batchnorm are deliberately NOT in the search
+# space — they are fixed above.
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# linear<->log transition scale of the obs asinh transform. This channel's obs
+# delta is much tighter than the EWkino one (p10 -1.4, p90 3.2), so the useful
+# crossover sits lower and the range is shifted down accordingly.
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 2.0e-01
+  high: 1.0e+01
