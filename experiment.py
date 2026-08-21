@@ -360,6 +360,13 @@ class nLLsExperiment(BaseExperiment):
             if self.cfg.data.no_props:
                 self.props_val = self.props[idataset][self.split_test : self.split_val]
 
+        # Per-output range of the TRAINING targets in preprocessed space. Used to
+        # bound the model's mean outputs (models.mup_mlp.MuMLP.set_output_clamp)
+        # so a runaway prediction cannot decode to an absurd nLL through the
+        # exponential inverse. Test/val are deliberately excluded.
+        _tr = np.concatenate([np.asarray(a) for a in train_sets["nLLs"]], axis=0)
+        self.nLL_prepd_train_range = (_tr.min(axis=0), _tr.max(axis=0))
+
         # create dataloaders
         self.cfg.training.batchsize = int(min(self.cfg.training.batchsize, n_train / 2))
         self.train_loader = torch.utils.data.DataLoader(

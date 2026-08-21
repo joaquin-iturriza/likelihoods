@@ -132,6 +132,22 @@ class BaseExperiment:
         
         self.model = instantiate(self.cfg.model)
         print(self.model)
+
+        # Pin the soft-saturation knees to the training-target range. Identity
+        # inside, logarithmic outside — see MuMLP._clamp_means. Traced into the
+        # exported ONNX graph, so the behaviour travels with the model instead of
+        # relying on the consumer.
+        soft = getattr(self.model.net, "out_soft_bound", False)
+        rng = getattr(self, "nLL_prepd_train_range", None)
+        if soft and rng is not None:
+            lo, hi = rng
+            self.model.net.set_output_clamp(lo, hi)
+            LOGGER.info(
+                f"Output soft bound (preprocessed space): "
+                f"lo={np.round(lo, 4).tolist()} hi={np.round(hi, 4).tolist()}"
+            )
+        elif soft:
+            LOGGER.warning("out_soft_bound set but no training-target range available")
         num_parameters = sum(
             p.numel() for p in self.model.parameters() if p.requires_grad
         )

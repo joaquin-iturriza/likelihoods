@@ -33,6 +33,7 @@ class MuMLP(nn.Module):
         batchnorm=False,
         BN_eps=1e-5, #default PyTorch value
         BN_momentum=0.1, #default PyTorch value
+        out_soft_bound=False,
     ):
         super().__init__()
 
@@ -42,6 +43,36 @@ class MuMLP(nn.Module):
         self.in_shape = n_features
         self.out_shape = out_shape
         self.loss = loss
+
+        # Optional soft saturation of the *mean* outputs, in preprocessed target
+        # space. The nLL preprocessings are exponential to invert (expm1 for
+        # log_w_negatives, sinh for asinh), so a single runaway prediction comes
+        # back as a physically absurd nLL: on the 2018-16 EWkino boundary scan a
+        # handful of otherwise-unremarkable rows decoded to ~6e6 against a truth
+        # max of 2460.
+        #
+        # This is NOT a clamp. Inside the training range the map is exactly the
+        # identity, so gradients and in-distribution predictions are untouched;
+        # outside it grows logarithmically instead of linearly, which turns the
+        # exponential inverse into a polynomial one. Extrapolation still works
+        # and stays strictly ordered -- a point further out of distribution still
+        # gets a larger nLL -- it just cannot explode. A hard clip would instead
+        # pin everything beyond the edge to one value, making "just outside" and
+        # "wildly outside" indistinguishable to the consumer.
+        #
+        # Applied here rather than in the consumer so it is traced into the
+        # exported ONNX graph and protects everyone. Bounds are filled from the
+        # TRAINING targets by set_output_clamp(); until then they are +-inf and
+        # the map is a no-op.
+        # persistent=False keeps these out of state_dict: every checkpoint
+        # written before this existed still loads, and the bounds are anyway
+        # re-derived from the training data on each init_model, so storing them
+        # would only risk a stale copy overriding the live one.
+        self.out_soft_bound = out_soft_bound
+        self.register_buffer("out_lo", torch.full((self.out_shape,), float("-inf")),
+                             persistent=False)
+        self.register_buffer("out_hi", torch.full((self.out_shape,), float("inf")),
+                             persistent=False)
 
         layers: List[nn.Module] = []
 
@@ -102,6 +133,38 @@ class MuMLP(nn.Module):
                 bound = 1 / (fan_in ** 0.5)
                 nn.init.uniform_(m.bias, -bound, bound)
 
+    def set_output_clamp(self, lo, hi):
+        """Pin the soft-saturation knees (preprocessed space), per output column.
+
+        Called once after the data is prepared, with the per-column min/max of
+        the TRAINING targets. No margin is needed: the map is exactly the
+        identity between lo and hi, so training points are never distorted.
+        """
+        lo = torch.as_tensor(lo, dtype=self.out_lo.dtype, device=self.out_lo.device)
+        hi = torch.as_tensor(hi, dtype=self.out_hi.dtype, device=self.out_hi.device)
+        assert lo.shape == self.out_lo.shape, f"clamp lo {lo.shape} != {self.out_lo.shape}"
+        assert (hi > lo).all(), "output clamp needs hi > lo on every column"
+        self.out_lo.copy_(lo)
+        self.out_hi.copy_(hi)
+
+    def _clamp_means(self, means: torch.Tensor) -> torch.Tensor:
+        """Identity on [out_lo, out_hi], logarithmic outside.
+
+            x                       lo <= x <= hi
+            hi + log1p(x - hi)      x > hi
+            lo - log1p(lo - x)      x < lo
+
+        Continuous and C1 at both knees (d/dx log1p(x-hi) = 1 at x = hi), and
+        strictly increasing everywhere, so the inverse preprocessing still maps
+        distinct predictions to distinct, correctly ordered nLLs.
+        """
+        if not self.out_soft_bound:
+            return means
+        over = torch.clamp(means - self.out_hi, min=0.0)
+        under = torch.clamp(self.out_lo - means, min=0.0)
+        inside = torch.minimum(torch.maximum(means, self.out_lo), self.out_hi)
+        return inside + torch.log1p(over) - torch.log1p(under)
+
     def forward(self, inputs: torch.Tensor):
         """Forward pass of μP-aware MLP."""
         x = self.mlp(inputs)
@@ -110,7 +173,7 @@ class MuMLP(nn.Module):
             # Split last `out_shape` dimensions, apply softplus for positivity
             x_sigmas = torch.max(torch.nn.functional.softplus(x[:, -self.out_shape:]),
                                  torch.tensor(1e-15, device=x.device))
-            x = torch.cat((x[:, :-self.out_shape], x_sigmas), dim=1)
+            x = torch.cat((self._clamp_means(x[:, :-self.out_shape]), x_sigmas), dim=1)
             return x
         else:
-            return x
+            return self._clamp_means(x)

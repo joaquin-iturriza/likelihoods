@@ -1,0 +1,118 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+paths:
+  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
+  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
+  project_dir: /eos/user/j/joiturri/likelihoods
+  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
+
+sweep_name: boundary201816_ewkinos_002
+n_trials: 20
+
+# Second pass at the 2018-16 EWkino boundary scan. boundary201816_ewkinos_001
+# produced a model that is excellent on 99% of the data (median |err| 0.10-0.21
+# nLL below the 99th percentile) and useless above it, in two distinct ways:
+#
+#   1. The tail flatlines. delta_exp jumps from 14.0 at p99 to 1152 at p99.1 --
+#      the data is effectively bimodal, a dense band at [0, 14] holding 99% of
+#      rows plus a sparse tail at [~500, 2460] with almost nothing between. The
+#      model learns the band and predicts ~bulk for every tail point, giving
+#      median |err| 1335 at p99.9-99.99 and 1917 in the top bin.
+#   2. A handful of rows in the BULK percentiles decode to +-4-6e6, because the
+#      log_w_negatives inverse (expm1) amplifies one bad prediction without
+#      bound. These are ordinary parameter points returning garbage, which is
+#      the more dangerous of the two failures.
+#
+# Two changes vs _001:
+#   * observe_metric is now the MEAN relative error over ALL FOUR outputs
+#     (val_rel_err_nll), not the median over obs alone. The old objective was
+#     median-based (blind to tails) and obs-only -- and obs is the one output
+#     that was already fine, so the sweep optimised the thing that wasn't broken.
+#     Note this is a deliberate departure from the house convention: every other
+#     sweep here scores on an obs-only median. Results are NOT directly
+#     comparable to _001's val_loss ranking.
+#   * model.net.out_soft_bound softly saturates the mean outputs outside the
+#     training-target range (identity inside, logarithmic beyond), traced into
+#     the exported ONNX graph. This caps (2) without capping extrapolation: the
+#     map stays strictly increasing, so out-of-distribution points still get
+#     larger nLLs. It does not fix (1) -- the bimodal data will still fight a
+#     single MLP, and a bulk/tail split remains the real answer there.
+config_name: nLLs_C
+observe_metric: val_rel_err_nll
+
+dyhpo:
+  n_candidates: 300
+  seed: 43
+  n_startup: 10
+  total_budget: 10000
+
+fidelity_schedule:
+  t_steps: [200000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.dataset: '[1911.12606-EWKinos-158k-boundaryscan]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: gelu / dropout 0 / batchnorm off are the mup_mlp defaults ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # soft-saturate the mean outputs outside the training-target range: identity
+  # inside, logarithmic beyond, so the exponential inverse can no longer produce
+  # a 6e6 nLL. Strictly increasing, so going out of distribution still works and
+  # stays ordered -- this is not a clip. See config/model/mup_mlp.yaml.
+  model.net.out_soft_bound: 'true'
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+# Activation, loss, dropout and batchnorm are fixed above, not searched.
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0
+# Per-output loss weights. _001 weighted all four equally, which let the three
+# log_w_negatives outputs (exp/expA/obsA -- the ones that broke) be traded off
+# against obs. Sweeping the shared weight on those three lets DyHPO buy tail
+# accuracy where it was lost.
+- name: training.output_weights
+  type: categorical
+  choices:
+  - '[1,1,1,1]'
+  - '[2,1,2,2]'
+  - '[4,1,4,4]'

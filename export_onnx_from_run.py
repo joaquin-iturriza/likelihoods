@@ -71,6 +71,11 @@ def main(run_dir, rafal_onnx_path, out_onnx=None, run_idx=0):
     exp.dtype = torch.float32
     exp.init_physics()
     exp.init_data()
+    # Same order as BaseExperiment.full_run (init_data -> _init_dataloader ->
+    # init_model). _init_dataloader is what derives the training-target range,
+    # and init_model needs it to pin the output clamp; skipping it exported a
+    # model whose clamp constants were still +-inf, i.e. silently unbounded.
+    exp._init_dataloader()
     exp.init_model()
     
     # ------------------------------------------------------------------
