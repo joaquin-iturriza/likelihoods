@@ -55,7 +55,7 @@ def _undo_col_trafo(col, fn_str, scale):
         raise ValueError(f"unsupported per-output nLL trafo: {fn_str!r}")
 
 
-def _preprocess_nLLs_per_output(nLLs, spec, fixed_mean=None, fixed_std=None):
+def _preprocess_nLLs_per_output(nLLs, spec, fixed_mean=None, fixed_std=None, n_fit=None):
     """Apply a separate trafo pipeline to each nLL output column.
 
     `spec` is a mapping with:
@@ -92,8 +92,9 @@ def _preprocess_nLLs_per_output(nLLs, spec, fixed_mean=None, fixed_std=None):
                 if fixed:
                     m, s = fixed_mean[c], float(np.clip(fixed_std[c], 1e-6, None))
                 else:
-                    m = col.mean()
-                    s = np.clip(col.std(), 1e-6, None)
+                    fit = col[:n_fit] if n_fit is not None else col
+                    m = fit.mean()
+                    s = np.clip(fit.std(), 1e-6, None)
                 col = (col - m) / s
                 mean[c], std[c] = m, s
             else:
@@ -123,12 +124,12 @@ def _undo_preprocess_nLLs_per_output(nLLs, mean, std, spec, nll_bounds):
     return out
 
 
-def preprocess_nLLs(nLLs, trafos=None, fixed_mean=None, fixed_std=None):
+def preprocess_nLLs(nLLs, trafos=None, fixed_mean=None, fixed_std=None, n_fit=None):
     mean, std = 0.0, 1.0
     nll_bounds = {}
 
     if trafos and _is_per_output(trafos):
-        return _preprocess_nLLs_per_output(nLLs, trafos, fixed_mean, fixed_std)
+        return _preprocess_nLLs_per_output(nLLs, trafos, fixed_mean, fixed_std, n_fit)
 
     if trafos:
         for fn_str in trafos:
@@ -136,7 +137,7 @@ def preprocess_nLLs(nLLs, trafos=None, fixed_mean=None, fixed_std=None):
 
             if fn_str == "standardization":
                 nLLs, mean, std = standardization(
-                    nLLs, return_mean_std=True, clip=False
+                    nLLs, return_mean_std=True, clip=False, n_fit=n_fit
                 )
 
             elif fn_str == "log_w_negatives":
@@ -205,6 +206,7 @@ def preprocess_features(
     std=None,
     eps_std=1e-2,
     return_dict=False,
+    n_fit=None,
 ):
     assert np.isfinite(features_raw).all()
     
@@ -217,7 +219,7 @@ def preprocess_features(
                     transformed_features, mean, std = standardization(
                         transformed_features, return_mean_std=True, clip=False,
                         use_previous_mean_std=(mean is not None and std is not None),
-                        mean=mean, std=std,
+                        mean=mean, std=std, n_fit=n_fit,
                     )
                 else:
                     fn = get_fn(fn_str)
@@ -237,13 +239,20 @@ def preprocess_features(
         return np.concatenate(list(feature_sets.values()), axis=1), mean, std
 
 
-def standardization(features, return_mean_std=False, clip=True, use_previous_mean_std=False, mean=None, std=None):
-    """standardize features"""
+def standardization(features, return_mean_std=False, clip=True, use_previous_mean_std=False, mean=None, std=None, n_fit=None):
+    """standardize features
+
+    n_fit: fit mean/std on the first n_fit rows only (the training block; rows
+    are already shuffled and ordered train|val|test by init_data) but apply the
+    transform to all rows. None fits on everything, which leaks val/test column
+    statistics into the normalisation.
+    """
     if use_previous_mean_std:
         assert mean is not None and std is not None, "Mean and std must be provided if use_previous_mean_std is True"
     else:
-        mean = features.mean(axis=0)
-        std = features.std(axis=0)
+        fit = features[:n_fit] if n_fit is not None else features
+        mean = fit.mean(axis=0)
+        std = fit.std(axis=0)
         # A column that is exactly constant carries no information; (x-mean)/std
         # is 0/0 there. std=1 maps it to 0 and stays exactly invertible. Only
         # triggers on std == 0, which otherwise divides by zero and trips the

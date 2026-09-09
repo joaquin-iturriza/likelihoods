@@ -270,11 +270,30 @@ class nLLsExperiment(BaseExperiment):
                     fx_nLL_std = fx_nLL_std[target_indices]
                 LOGGER.info(f"Pinning normalization to pretrained stats from {fixed_stats_onnx}")
 
+            # Number of leading rows that _init_dataloader will use as the
+            # training block. The standardisation statistics must be fitted on
+            # those rows alone: fitting on the whole array leaks the column means
+            # and variances of val/test into the normalisation the network is
+            # trained with. Rows are already in train|val|test order here, either
+            # from the shuffle above or from the on-disk presplit.
+            n_data = len(features)
+            if presplit is not None:
+                n_fit = presplit[0]
+            else:
+                n_fit = int(n_data * self.cfg.data.train_test_val[0])
+                if self.cfg.data.subsample is not None:
+                    n_fit = min(int(self.cfg.data.subsample), n_fit)
+            LOGGER.info(
+                f"Fitting preprocessing statistics on the training block only "
+                f"({n_fit} of {n_data} rows)"
+            )
+
             # preprocess data
             LOGGER.info(f"Preprocessing nLLs using trafos={self.cfg.data.nLL_trafos}")
             nLLs_prepd, prepd_mean, prepd_std, prepd_nll_bounds = preprocess_nLLs(
                 nLLs, trafos=self.cfg.data.nLL_trafos,
                 fixed_mean=fx_nLL_mean, fixed_std=fx_nLL_std,
+                n_fit=n_fit,
             )
 
             LOGGER.info(f"Preprocessing features using trafos={self.cfg.data.trafos}")
@@ -287,6 +306,7 @@ class nLLsExperiment(BaseExperiment):
                 incl_fvs=self.cfg.data.incl_fvs,
                 mean=fx_feat_mean,
                 std=fx_feat_std,
+                n_fit=n_fit,
             )
             print("########################")
             print("prepd_mean_features:", prepd_mean_features)
