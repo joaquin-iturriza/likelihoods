@@ -9,7 +9,7 @@
 #
 # Usage:  scripts/publish_main.sh [--no-push]
 set -euo pipefail
-REPO="/eos/home-j/joiturri/likelihoods"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="lxplus"
 ALLOW="$REPO/.claude/public_paths.txt"
 cd "$REPO"
@@ -22,6 +22,10 @@ git rev-parse --verify "$SRC" >/dev/null 2>&1 || { echo "ERROR: no '$SRC' branch
 
 git branch -D _pubtmp 2>/dev/null || true
 WT="$(mktemp -d)"
+# The repo may sit on an sshfs mount owned by a foreign uid; a throwaway worktree
+# whose gitdir points into it trips git's "dubious ownership" check. Whitelist it
+# for this process only.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$WT"
 cleanup() {
   cd "$REPO" 2>/dev/null || true
   git worktree remove --force "$WT" 2>/dev/null || true
