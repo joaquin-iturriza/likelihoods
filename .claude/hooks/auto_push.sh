@@ -8,7 +8,7 @@
 # scripts/publish_main.sh instead). Failures are non-fatal (printed, exit 0) so a
 # push problem never blocks the session.
 set -uo pipefail
-REPO="/eos/home-j/joiturri/likelihoods"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO" 2>/dev/null || exit 0
 
 # Walk every worktree (the main checkout + any ../wt-* feature worktrees) so

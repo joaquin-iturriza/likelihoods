@@ -6,7 +6,7 @@
 # edit of trunk code on `main`. ADVISORY (non-blocking) — it injects a reminder
 # and lets the edit proceed, so false positives cost one line, not a hard stop.
 set -uo pipefail
-REPO="/eos/home-j/joiturri/likelihoods"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 input=$(cat)
 fp=$(printf '%s' "$input" | python3 -c 'import sys,json;

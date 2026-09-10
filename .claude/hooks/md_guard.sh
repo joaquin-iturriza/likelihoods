@@ -13,7 +13,7 @@
 # Escape hatch (recorded): add the approved new .md's repo-relative or absolute
 # path to .claude/md_allowlist.txt (one per line).
 set -uo pipefail
-REPO="/eos/home-j/joiturri/likelihoods"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ALLOWLIST="$REPO/.claude/md_allowlist.txt"
 
 input=$(cat)

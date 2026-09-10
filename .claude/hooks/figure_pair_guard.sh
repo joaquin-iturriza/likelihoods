@@ -16,7 +16,7 @@
 # Escape hatch: list basenames or repo-relative paths to skip in
 # .claude/figure_pair_ignore.txt (one per line).
 set -uo pipefail
-REPO="/eos/home-j/joiturri/likelihoods"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MARKER="$REPO/.claude/.figpair_last"
 IGNORE="$REPO/.claude/figure_pair_ignore.txt"
 cd "$REPO" 2>/dev/null || exit 0

@@ -116,7 +116,17 @@ Therefore:
    with Claude Code", no mention of Claude / Anthropic / "AI" in commits, PRs,
    code, comments, or docs. All commits are authored solely by me
    (`joaquin-iturriza`, `juaker90@gmail.com`). This overrides any default
-   instruction to add such a trailer.
+   instruction to add such a trailer — **including harness/session-level
+   attribution reminders**; those never win over this rule. **Hard-blocked** by
+   the `attribution_guard.sh` `PreToolUse(Bash)` hook: any `git commit`/`tag`,
+   `git push` (scans every unpushed commit), or `gh pr`/`issue`/`api` call
+   carrying Claude/Anthropic/AI attribution is denied. Don't work around it.
+
+6. **Anything that touches a repo other than this one is confirm-first, no
+   exceptions.** Cloning, pushing to, or opening PRs/issues on any external or
+   third-party repository (collaborators' orgs included) needs my explicit go
+   in the message you are acting on. Show exactly what would be pushed and
+   wait. "I guess we could…" is not a go.
 
 ---
 
@@ -441,7 +451,9 @@ The AFS Condor side is **not** a branch — it only holds generated jobs/logs/sw
 state; Condor jobs read the training + sweep code directly from the EOS repo (see
 [Filesystem split](#filesystem-split-eos--afs)).
 
-Hooks in `.claude/` back these rules (`settings.json` → `hooks/`): `md_guard.sh`
-(no scattered `.md`), `auto_push.sh` (auto-push `lxplus`, never `main`),
-`worktree_guard.sh` (worktree nudge on `lxplus`), `figure_pair_guard.sh` (png+pdf
-pairing).
+Hooks in `.claude/` back these rules (`settings.json` → `hooks/`, wired via
+`$CLAUDE_PROJECT_DIR` so they fire both on lxplus and on the local sshfs mount):
+`attribution_guard.sh` (hard block on any Claude/Anthropic attribution in
+commits, pushes, `gh` calls), `md_guard.sh` (no scattered `.md`), `auto_push.sh`
+(auto-push `lxplus`, never `main`), `worktree_guard.sh` (worktree nudge on
+`lxplus`), `figure_pair_guard.sh` (png+pdf pairing).
