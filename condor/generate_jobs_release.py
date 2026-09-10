@@ -18,7 +18,10 @@ import yaml
 
 EOS = "/eos/user/j/joiturri/likelihoods"
 AFS = "/afs/cern.ch/user/j/joiturri/likelihoods"          # path as lxplus sees it
-AFS_LOCAL = os.path.expanduser("~/mnt/afs/likelihoods")   # same bytes, local mount
+_afs_mnt = os.path.expanduser("~/mnt/afs/likelihoods")
+# Same bytes either way: the sshfs mount when running locally, the real path
+# when running on lxplus (where the mount does not exist).
+AFS_LOCAL = _afs_mnt if os.path.isdir(_afs_mnt) else AFS
 VENV = "/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate"
 EXP_NAME = "release_v2"
 FLAVOUR = "tomorrow"
@@ -111,7 +114,6 @@ output                = {AFS}/output/{jn}.$(ClusterId).out
 error                 = {AFS}/error/{jn}.$(ClusterId).err
 log                   = {AFS}/log/{jn}.$(ClusterId).log
 request_gpus          = 1
-request_memory        = 16000
 requirements          = !regexp("MIG", TARGET.GPUs_DeviceName)
 +JobFlavour           = "{FLAVOUR}"
 queue

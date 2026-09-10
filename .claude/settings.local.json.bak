@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(timeout 900 lxplus-run -d /home/joaquin/mnt/afs/likelihoods/subs 'for f in release_*.sub; do condor_submit $f; done')"
+    ]
+  }
+}

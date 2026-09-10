@@ -11,6 +11,60 @@ is `nnAdapter.py` (ships with the paper).
 
 ---
 
+## Execution model — run LOCALLY, drive lxplus over SSH (read this first)
+
+The assistant runs on the user's **local machine**, not on an lxplus login node.
+lxplus enforces 2FA, so a session cannot be opened there unattended. The project
+is an **sshfs mount** of CERN storage — local paths *are* the CERN paths, same
+bytes:
+
+| local (where you work) | CERN (what lxplus sees) |
+|---|---|
+| `~/mnt/eos/<project>` | `/eos/user/j/joiturri/<project>` |
+| `~/mnt/afs/<project>` | `/afs/cern.ch/user/j/joiturri/<project>` |
+
+Therefore:
+
+- **All file work is local, zero SSH.** Read/search/edit code, inspect configs and
+  ONNX, read run outputs, **tail Condor logs** — the AFS and EOS logs are on the
+  mount. Use normal file tools; never ssh for these.
+- **Only CERN-side execution crosses the wire:** `condor_submit`, `condor_q`,
+  `condor_rm`, and test runs that need CERN CPU/GPU. Keep it minimal. **Never**
+  run the assistant's own reasoning/tooling on lxplus.
+- **Use the helper:** `lxplus-run <cmd>` (in `~/.local/bin`) runs `<cmd>` on
+  lxplus after `cd`-ing to the CERN equivalent of your current directory, so
+  relative paths in `.sub`/`.sh` files resolve exactly as a manual login-node
+  submit would.
+  - `lxplus-run condor_q`
+  - `lxplus-run -d ~/mnt/afs/<project> condor_submit <job>.sub` — **Condor must be
+    submitted from AFS**; it refuses to submit from EOS.
+- **Quick GPU test → interactive session, not a queued job.** For a smoke test,
+  a shape check, or "does this even start", do **not** submit a short job. Use a
+  GPU-equipped interactive node:
+  - `lxplus-run -g python run.py --smoke-test` — one command on `lxplus-gpu`
+  - `lxplus-run -i` — an interactive shell on `lxplus-gpu`, dropped in this
+    project's CERN directory, for poking around by hand
+  Reserve HTCondor for real training runs. A 2-minute job spent queueing is worse
+  than the same 2 minutes on an interactive GPU node.
+- **You cannot run GPU work from the local shell** — there is no local GPU and no
+  local Condor. It is `lxplus-run` or nothing.
+- **Timeouts go through `-t`, never a local wrapper.** Use
+  `lxplus-run -t 900 <cmd>` (the timeout is applied on lxplus). Do **not** write
+  `timeout 900 lxplus-run ...`: that makes the command line start with `timeout`,
+  which no longer matches the `Bash(lxplus-run:*)` permission rule, so the call
+  falls through to the auto-mode classifier and becomes a coin flip. This is the
+  actual reason submits were sometimes refused and sometimes not.
+- **If the mount or ssh dies, re-up it yourself.** Helpers (`cluster_status`,
+  `sshfs_lxplus`) live in `~/.bash_aliases` and are **not** in the
+  non-interactive tool shell — source them first:
+  `source ~/.bash_aliases && cluster_status`, then `sshfs_lxplus`. Symptoms:
+  file tools hanging, or "Transport endpoint is not connected".
+- **The one thing you cannot do is 2FA.** `lxplus-run` multiplexes over a
+  ControlMaster that lasts ~12h. If it has lapsed the helper stops and says so —
+  ask the user to run `! ssh lxplus` (or `! ssh lxplus-gpu`) once, then retry.
+
+---
+
 ## Ground rules (read first)
 
 1. **One maintained architecture — the μP MLP.** Use `model=mup_mlp`
@@ -24,7 +78,7 @@ is `nnAdapter.py` (ships with the paper).
      `mlp`. Treat `mup_mlp` as canonical for **new** work; don't assume an existing
      artifact is μP.
 
-2. **You're on lxplus, split across two filesystems (EOS + AFS).** See
+2. **Storage is split across two filesystems (EOS + AFS).** See
    [Filesystem split](#filesystem-split-eos--afs). Code + data + models live in
    this **EOS** git repo; HTCondor job submission lives on **AFS** (Condor won't
    submit from EOS). You're typically on a **login node — no GPU**: run CPU-only
@@ -32,8 +86,10 @@ is `nnAdapter.py` (ships with the paper).
    goes through HTCondor** (submitted from AFS).
    - **Submitting jobs — confirm first.** Actually submitting `condor_submit`
      jobs/sweeps uses shared GPU budget: show me the command + how many jobs and
-     **ask before submitting**. Generating job files, inspecting queue
-     (`condor_q`), reading logs — do freely.
+     **ask before submitting** — *unless I already asked for the submission in the
+     message you are acting on*. An explicit instruction to train, sweep or submit
+     **is** the confirmation; don't ask twice. Generating job files, inspecting
+     queue (`condor_q`), reading logs — do freely.
    - **Git is NOT confirm-first.** `git add`/`commit`/`push`/`worktree` happen
      automatically (see [Git workflow](#git--workflow)). Never conflate a `git
      push` with submitting a job.
@@ -290,7 +346,10 @@ pre-flight check → `source <venv>/bin/activate` →
 there is nothing to sync. A single hand-picked run is just a 1-trial sweep.
 
 - **Submitting jobs — confirm first.** Show me the command + job count and **ask
-  before any `condor_submit`**. Submit from an AFS cwd (EOS can't submit):
+  before any `condor_submit`** — *unless I already asked for the submission in the
+  message you are acting on*, in which case that instruction is the confirmation
+  and asking again just costs a round trip. Submit from an AFS cwd (EOS can't
+  submit):
   `cd <AFS sweep dir>/subs && for f in trial_*.sub; do condor_submit $f; done`.
 - **Always wait on submitted jobs.** After *any* `condor_submit`, launch
   `scripts/wait_for_jobs.sh` **in the background** so the work is tracked to
