@@ -256,6 +256,13 @@ def _sci_formatter():
     return fmt
 
 
+def _savefig_pair(fig, out_path: str) -> None:
+    """Write the figure as both .pdf and .png (CLAUDE.md: figures ship as a pair)."""
+    stem = out_path[:-4] if out_path.lower().endswith((".pdf", ".png")) else out_path
+    for ext in (".pdf", ".png"):
+        fig.savefig(stem + ext, dpi=150, bbox_inches="tight")
+
+
 def _apply_style(ax, xlabel, ylabel, subtitle):
     ax.xaxis.set_major_formatter(_sci_formatter())
     ax.yaxis.set_major_formatter(_sci_formatter())
@@ -368,7 +375,7 @@ def make_histogram_plots(nLLs_truth: np.ndarray, title: str, out_dir: str, stem:
 
         fig.tight_layout()
         out_path = os.path.join(out_dir, f"{stem}_hist_{suffix}.pdf")
-        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        _savefig_pair(fig, out_path)
         plt.close(fig)
         print(f"  Saved: {out_path}")
 
@@ -385,7 +392,7 @@ def make_residual_plot(nLLs_truth: np.ndarray, nLLs_pred: np.ndarray,
                ylabel=r"$\mathrm{nLL}_{1,\mathrm{truth}}$",
                title=title, pct=pct, pct_exp=pct_exp, pct_obs=pct_obs)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    _savefig_pair(fig, out_path)
     plt.close(fig)
     print(f"  Saved: {out_path}")
 
@@ -408,7 +415,7 @@ def make_relative_residual_plot(nLLs_truth: np.ndarray, nLLs_pred: np.ndarray,
                ylabel=r"$\mathrm{nLL}_{1,\mathrm{truth}}$",
                title=title, pct=pct, pct_exp=pct_exp, pct_obs=pct_obs)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    _savefig_pair(fig, out_path)
     plt.close(fig)
     print(f"  Saved: {out_path}")
 

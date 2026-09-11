@@ -222,10 +222,16 @@ def extract_model_info(cfg: dict) -> dict:
     if run_name:
         try:
             d, t = run_name.split("_")[:2]
-            training_date = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:4]}:{t[4:6]}"
-            start_dt = datetime.datetime.strptime(training_date, "%Y-%m-%d %H:%M:%S")
+            candidate = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:4]}:{t[4:6]}"
+            # Only keep the parse once it validates. Assigning first meant a
+            # run_name that is not a timestamp (e.g. "SUSY-2019-09_Offshell_...")
+            # left a garbage date in place -- "SUSY--2-01 Of:fs:he" -- which also
+            # suppressed the checkpoint-mtime fallback below, since that only
+            # fires while training_date is still "unknown".
+            start_dt = datetime.datetime.strptime(candidate, "%Y-%m-%d %H:%M:%S")
+            training_date = candidate
         except (ValueError, IndexError):
-            pass
+            start_dt = None
 
     # Estimate training duration from model checkpoint mtime vs start time
     training_duration = "unknown"
@@ -233,6 +239,24 @@ def extract_model_info(cfg: dict) -> dict:
     if run_dir:
         if not os.path.isabs(run_dir):
             run_dir = os.path.join(BASE_DIR, run_dir)
+        # A run_name that is not a timestamp leaves no start time; the first
+        # line of the run log is written at startup, so its mtime-independent
+        # timestamp is the reliable fallback for the duration.
+        if start_dt is None:
+            for idx in range(4):
+                log = os.path.join(run_dir, f"out_{idx}.log")
+                if os.path.exists(log):
+                    try:
+                        with open(log) as fh:
+                            first = fh.readline()
+                        stamp = first.split("[", 1)[1].split(" I]")[0].rsplit(" ", 1)
+                        start_dt = datetime.datetime.strptime(
+                            " ".join(stamp[:2]) if len(stamp) > 1 else stamp[0],
+                            "%Y-%m-%d %H:%M:%S")
+                    except (ValueError, IndexError, OSError):
+                        start_dt = None
+                    break
+
         model_ckpt = os.path.join(run_dir, "models", "model_run0.pt.gz")
         if os.path.exists(model_ckpt):
             end_dt = datetime.datetime.fromtimestamp(os.path.getmtime(model_ckpt))
