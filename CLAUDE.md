@@ -374,8 +374,10 @@ and **submitted through `site`**; a single hand-picked run is just a 1-trial swe
   job-owned `#SBATCH` lines (`--job-name`, `--time`, `--cpus-per-task`,
   `--gres=gpu:N` as a plain count, `--output`).
 - Generators need the project env (they import `onnx`, `yaml`, `siteconf`), so
-  they run on the site through `site shell <site>` or in a job, never by hand over
-  ssh; generation is free, submission is not.
+  they run on the site's login node through
+  `site run <site> likelihoods -- python sweep/generate_sweep.py --config <cfg> [--dry-run]`
+  (checkout, env activated; `site sync` first), never by hand over ssh; generation is
+  free, submission is not.
 - **Submitting jobs — confirm first.** Show me the command + job count and **ask
   before any submission** — *unless I already asked for the submission in the
   message you are acting on*, in which case that instruction is the confirmation

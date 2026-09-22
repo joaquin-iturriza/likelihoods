@@ -32,7 +32,7 @@ br=$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null)
 [ "$br" = "trunk" ] || exit 0
 
 rel=${fp#"$REPO"/}
-msg="Worktree reminder: editing trunk file '$rel' directly on trunk. Per the git workflow, non-trivial feature work should go in a worktree (git worktree add ../wt-<feat> -b <feat> lxplus). If this is a quick standalone edit, proceed; otherwise create a worktree first."
+msg="Worktree reminder: editing trunk file '$rel' directly on trunk. Per the git workflow, non-trivial feature work should go in a worktree (git worktree add ../wt-<feat> -b <feat> trunk). If this is a quick standalone edit, proceed; otherwise create a worktree first."
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":%s}}\n' \
   "$(printf '%s' "$msg" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')"
 exit 0
