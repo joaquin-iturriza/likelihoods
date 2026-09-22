@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate the public `main` branch from the `lxplus` dev trunk, containing ONLY
+# Regenerate the public `main` branch from the `trunk` dev trunk, containing ONLY
 # the paths listed in .claude/public_paths.txt. `main` is a BUILD ARTIFACT — never
 # edit it by hand, never merge lxplus->main. To change what's public, edit the
 # allowlist and re-run this.
@@ -10,7 +10,7 @@
 # Usage:  scripts/publish_main.sh [--no-push]
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="lxplus"
+SRC="trunk"
 ALLOW="$REPO/.claude/public_paths.txt"
 cd "$REPO"
 
