@@ -7,12 +7,6 @@ cluster:
   priority: 10
   request_memory: 16000
 
-paths:
-  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
-  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
-  project_dir: /eos/user/j/joiturri/likelihoods
-  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
-
 sweep_name: boundary201816_sleptons_001
 n_trials: 20
 
@@ -51,7 +45,7 @@ fidelity_schedule:
 
 fixed_params:
   # --- data ---
-  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.data_path: ${PROJECT_DIR}/data/
   data.dataset: '[1911.12606-sleptons-153k-boundaryscan]'
   data.subsample: null
   data.incl_fvs: 'true'

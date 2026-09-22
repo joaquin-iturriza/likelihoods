@@ -10,8 +10,8 @@
 # Usage:  scripts/sync_condor_to_afs.sh [--dry-run]
 set -euo pipefail
 
-REPO="/eos/home-j/joiturri/likelihoods"
-AFS="/afs/cern.ch/user/j/joiturri/likelihoods"
+REPO="$PROJECT_DIR"
+AFS="${SUBMIT_DIR:?source sites/activate.sh first}"
 SRC="$REPO/condor/"
 
 DRY=""

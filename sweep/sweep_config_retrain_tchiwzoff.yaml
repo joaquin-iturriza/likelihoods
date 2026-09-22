@@ -7,12 +7,6 @@ cluster:
   priority: 10
   request_memory: 16000
 
-paths:
-  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
-  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
-  project_dir: /eos/user/j/joiturri/likelihoods
-  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
-
 sweep_name: retrain_tchiwzoff_001
 n_trials: 30
 
@@ -38,7 +32,7 @@ fidelity_schedule:
 
 fixed_params:
   # --- data (split fixed on disk: <dataset>{,_val,_test}.npy) ---
-  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.data_path: ${PROJECT_DIR}/data/
   data.dataset: '[2106.01676-winobino-minus-tchiwzoff-retrain]'
   data.subsample: null
   data.incl_fvs: 'true'

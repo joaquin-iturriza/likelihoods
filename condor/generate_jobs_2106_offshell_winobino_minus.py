@@ -1,10 +1,14 @@
 import os
 import numpy as np
 import glob
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))  # repo root, for siteconf
+import siteconf
+
 
 # ==== Configurable Parameters ====
-base_dir = "/eos/user/j/joiturri/likelihoods"
-home_dir = os.path.join(os.path.expanduser("~"),'likelihoods')
+base_dir = siteconf.PROJECT_DIR
+home_dir = siteconf.SUBMIT_DIR
 # Define the dataset and model
 dataset = "2106.01676-offshell-winobino-minus-300k-fluct20_"
 model = "mup_mlp"
@@ -203,7 +207,7 @@ for dataset in ["2106.01676-offshell-winobino-minus-300k-fluct20_"]:
                     with open(sh_path, "w") as f:
                         f.write(f"""#!/bin/bash
 cd {base_dir}
-source ../jitu/amplitude_DSI/amplitudes_env/bin/activate
+source {base_dir}/sites/activate.sh
 python {run_script} {params}
 """)
                     os.chmod(sh_path, 0o755)

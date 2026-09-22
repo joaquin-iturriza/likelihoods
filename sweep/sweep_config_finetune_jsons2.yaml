@@ -7,19 +7,13 @@ cluster:
   priority: 10
   request_memory: 8000
 
-paths:
-  afs_sweep_dir: /afs/cern.ch/user/j/joiturri/likelihoods/sweeps
-  eos_sweep_dir: /eos/user/j/joiturri/likelihoods/sweeps
-  project_dir: /eos/user/j/joiturri/likelihoods
-  python_env: /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate
-
 sweep_name: finetune_jsons2_001
 n_trials: 16
 
 # Finetune the best offshell-winobino model (trial_0102) to extend coverage to the
 # new TChiWZoff points. Every trial warm-starts from the pretrained checkpoint.
 pretrain:
-  run_dir: /eos/user/j/joiturri/likelihoods/runs/winobino_minus_preproc_001/trial_0102
+  run_dir: ${PROJECT_DIR}/runs/winobino_minus_preproc_001/trial_0102
   run_idx: 0
 
 # Preprocessing is FIXED (baked into nLLs_finetune: per-output [log,asinh,log,asinh],
@@ -39,7 +33,7 @@ fidelity_schedule:
 
 fixed_params:
   # --- data: the 8000-old + 1010-new rehearsal mix ---
-  data.data_path: /eos/user/j/joiturri/likelihoods/data/
+  data.data_path: ${PROJECT_DIR}/data/
   data.dataset: '[2106.01676-winobino-minus-jsons2-rehearsal]'
   data.subsample: null
   data.incl_fvs: 'true'

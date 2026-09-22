@@ -17,13 +17,17 @@ import os
 import pickle
 import stat
 import subprocess
+import os
 import sys
 import yaml
+_here = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(_here))
+import siteconf
 
-AFS_SWEEPS = '/afs/cern.ch/user/j/joiturri/likelihoods/sweeps'
-EOS_PROJECT = '/eos/user/j/joiturri/likelihoods'
-PYTHON_BIN  = '/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/python'
-PYTHON_ENV  = '/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate'
+AFS_SWEEPS = siteconf.SWEEP_DIR
+EOS_PROJECT = siteconf.PROJECT_DIR
+PYTHON_BIN  = 'python'   # env activated by PYTHON_ENV
+PYTHON_ENV  = os.path.join(siteconf.PROJECT_DIR, 'sites', 'activate.sh')
 
 
 def fmt(v):

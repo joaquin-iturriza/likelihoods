@@ -1,3 +1,6 @@
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import siteconf
 #!/usr/bin/env python3
 """Re-generate plots for all completed trials in a sweep (no retraining).
 
@@ -13,7 +16,7 @@ from experiment import nLLsExperiment
 from misc import get_device
 
 sweep_name = sys.argv[1]
-afs_sweep  = f'/afs/cern.ch/user/j/joiturri/likelihoods/sweeps/{sweep_name}'
+afs_sweep  = os.path.join(siteconf.SWEEP_DIR, sweep_name)
 
 with open(f'{afs_sweep}/checkpoint_index.json') as f:
     ckpt_index = json.load(f)

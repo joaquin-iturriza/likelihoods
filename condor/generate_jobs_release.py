@@ -15,14 +15,18 @@ import os
 
 import onnx
 import yaml
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))  # repo root, for siteconf
+import siteconf
 
-EOS = "/eos/user/j/joiturri/likelihoods"
-AFS = "/afs/cern.ch/user/j/joiturri/likelihoods"          # path as lxplus sees it
+
+EOS = siteconf.PROJECT_DIR
+AFS = siteconf.SUBMIT_DIR                                   # path as the site sees it
 _afs_mnt = os.path.expanduser("~/mnt/afs/likelihoods")
 # Same bytes either way: the sshfs mount when running locally, the real path
 # when running on lxplus (where the mount does not exist).
 AFS_LOCAL = _afs_mnt if os.path.isdir(_afs_mnt) else AFS
-VENV = "/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate"
+VENV = os.path.join(siteconf.PROJECT_DIR, "sites", "activate.sh")
 EXP_NAME = "release_v2"
 FLAVOUR = "tomorrow"
 
