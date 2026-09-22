@@ -11,7 +11,40 @@ is `nnAdapter.py` (ships with the paper).
 
 ---
 
+## Where this runs — projects above sites (2026-09-22; read before anything below)
+
+This repo is one of six projects that can run at **any** of three sites: CC-IN2P3
+(SLURM, V100), Jean Zay (SLURM, V100/A100, **hours limited**) and lxplus (HTCondor).
+The working copy is the **local checkout `~/work/likelihoods`**. Nothing is edited on a
+cluster: no sshfs mount, no `scripts/remote.sh`, no `lxplus-run`, no `ssh` by hand.
+Code reaches a site by git, jobs by the `site` tool. **Read `~/work/CLAUDE.md`** for
+the rules and the verbs (`site pick / env / sync / submit / poll / logs / fetch / where`).
+
+- **One branch: `trunk`.** The old per-cluster branches (`lxplus`) are retired: they
+  had no commits `trunk` lacks. `main` stays a generated publish artifact where the
+  repo has one.
+- **Site facts live in `sites/sites.yaml`** (paths, scheduler flags, env recipe) and
+  `sites/activate.sh`. Python asks `siteconf` (`siteconf.PROJECT_DIR`,
+  `siteconf.slurm_header(...)`, `siteconf.resolve(cfg)`); every job script starts with
+  `source "$_CCORCH_ROOT/sites/activate.sh"`. **Never hardcode a cluster path**; Hydra
+  data paths are `${oc.env:DATA_DIR}`.
+- **Jean Zay is never picked automatically** — only when the work needs it or the
+  user asks (`--allow-jeanzay`). Over ~10 GPU-hours: confirm first.
+- **Infrastructure checks use `scripts/job_probe.sh`** (10 s), never a training run.
+- **Results:** `site fetch <run>` mirrors tier-0 (metrics, small plots, configs) to
+  `~/.local/share/ccorch/artifacts/likelihoods/<run>/`; heavy artefacts stay on the site;
+  `site where <run>` prints both. The registry records the deployed commit of every run.
+- **Never delete anything on a cluster you did not create in the same command.**
+
+Sections below that mention the sshfs mount, `remote.sh` / `lxplus-run`, a per-cluster
+branch, or absolute cluster paths describe the old model and carry a supersession note.
+The AFS/EOS split, the hooks, the science and the conventions are unchanged.
+
+---
+
 ## Execution model — run LOCALLY, drive lxplus over SSH (read this first)
+
+> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
 
 The assistant runs on the user's **local machine**, not on an lxplus login node.
 lxplus enforces 2FA, so a session cannot be opened there unattended. The project
@@ -154,6 +187,8 @@ The project is deliberately spread across two CERN filesystems:
 ---
 
 ## Paths
+
+> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
 
 | What | Path |
 |------|------|
@@ -344,6 +379,8 @@ the **predecessor** solving the *identical* problem — yields → 4 nLL deltas
 
 ## HTCondor job submission (AFS)
 
+> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
+
 GPU training runs as HTCondor jobs, submitted from **AFS**
 (`/afs/cern.ch/user/j/joiturri/likelihoods`) — Condor refuses to submit from EOS.
 Jobs come from the **DyHPO sweep engine** (see [Sweeps & DyHPO](#sweeps--dyhpo)):
@@ -413,6 +450,8 @@ a lock file on AFS. Mirrors the Condor split:
 ---
 
 ## Git & workflow
+
+> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
 
 Fresh-started history (the old `amplitude_DSI` history was intentionally dropped;
 kept as the local tag `backup/amplitude_DSI-history`). **Development trunk +
