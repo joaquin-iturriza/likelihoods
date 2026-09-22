@@ -23,7 +23,9 @@ case "$CCORCH_SITE" in
     export SUBMIT_DIR="${SUBMIT_DIR:-/sps/lpnhe/jiturrizaramirez01/likelihoods}"
     ;;
   jeanzay)
-    source "$PROJECT_DIR/.venv/bin/activate"
+    module load anaconda-py3/2023.09 2>/dev/null || true
+    source /gpfslocalsup/pub/anaconda-py3/2023.09/etc/profile.d/conda.sh
+    conda activate /lustre/fswork/projects/rech/itg/ulm49ia/conda/envs/foundational
     export WORK="${WORK:-/lustre/fswork/projects/rech/itg/ulm49ia}"
     export SCRATCH="${SCRATCH:-/lustre/fsn1/projects/rech/itg/ulm49ia}"
     export DATA_DIR="${DATA_DIR:-/lustre/fswork/projects/rech/itg/ulm49ia/likelihoods/data}"

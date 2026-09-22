@@ -1,0 +1,26 @@
+# likelihoods -- third-party imports of the tracked .py files.
+# On lxplus and Jean Zay this project shares the amplitude_DSI / foundational
+# env (torch 2.1.2); elsewhere torch comes from the site's index. Loose pins.
+torch>=2.1
+torchvision
+torch_geometric
+torch_ema
+einops
+gpytorch>=1.11
+hydra-core>=1.3
+omegaconf>=2.3
+lion_pytorch
+mup
+schedulefree
+mlflow
+numpy
+scipy
+scikit-learn
+pandas
+matplotlib
+opt_einsum
+onnx
+onnxruntime
+torchsummary
+tqdm
+pyyaml
