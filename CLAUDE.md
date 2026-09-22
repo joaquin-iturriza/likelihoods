@@ -11,90 +11,45 @@ is `nnAdapter.py` (ships with the paper).
 
 ---
 
-## Where this runs — projects above sites (2026-09-22; read before anything below)
+## Execution model — work locally, reach clusters only through `site` (read this first)
 
-This repo is one of six projects that can run at **any** of three sites: CC-IN2P3
-(SLURM, V100), Jean Zay (SLURM, V100/A100, **hours limited**) and lxplus (HTCondor).
-The working copy is the **local checkout `~/work/likelihoods`**. Nothing is edited on a
-cluster: no sshfs mount, no `scripts/remote.sh`, no `lxplus-run`, no `ssh` by hand.
-Code reaches a site by git, jobs by the `site` tool. **Read `~/work/CLAUDE.md`** for
-the rules and the verbs (`site pick / env / sync / submit / poll / logs / fetch / where`).
+This is one of six projects that live **above** the clusters. The working copy is
+the **local checkout `~/work/likelihoods`** and that is where you work: read, edit,
+`git`, CPU-only Python. Nothing is edited on a cluster — no sshfs mount, no
+`ssh`/`scp` by hand, no helper that runs commands remotely for you. Code reaches a
+site by git and jobs by the `site` tool; the general rules and every verb are in
+**`~/work/CLAUDE.md`** — read it, it is not repeated here.
 
-- **One branch: `trunk`.** The old per-cluster branches (`lxplus`) are retired: they
-  had no commits `trunk` lacks. `main` stays a generated publish artifact where the
-  repo has one.
-- **Site facts live in `sites/sites.yaml`** (paths, scheduler flags, env recipe) and
-  `sites/activate.sh`. Python asks `siteconf` (`siteconf.PROJECT_DIR`,
-  `siteconf.slurm_header(...)`, `siteconf.resolve(cfg)`); every job script starts with
-  `source "$_CCORCH_ROOT/sites/activate.sh"`. **Never hardcode a cluster path**; Hydra
-  data paths are `${oc.env:DATA_DIR}`.
-- **Jean Zay is never picked automatically** — only when the work needs it or the
-  user asks (`--allow-jeanzay`). Over ~10 GPU-hours: confirm first.
-- **Infrastructure checks use `scripts/job_probe.sh`** (10 s), never a training run.
-- **Results:** `site fetch <run>` mirrors tier-0 (metrics, small plots, configs) to
-  `~/.local/share/ccorch/artifacts/likelihoods/<run>/`; heavy artefacts stay on the site;
-  `site where <run>` prints both. The registry records the deployed commit of every run.
+The project can run at any of three sites:
+
+| Site | Scheduler | What to know |
+|---|---|---|
+| **lxplus** (CERN) | HTCondor | Code + data on **EOS**, submission on **AFS** — structural, see [Filesystem split](#filesystem-split-eos--afs). 2FA: the ssh master is opened by the user; if `site` reports no live master, ask. |
+| **CC-IN2P3** | SLURM (V100) | `--gpus=N` (typed `--gres` breaks its submit plugin), `--mem` mandatory, at most 5 CPUs per GPU — all added by `site submit`, not by the job script. |
+| **Jean Zay** | SLURM (`itg@v100`, `gpu_p2`) | **Hours are limited.** `site pick` never chooses it; use it only when the work needs it or the user explicitly asks (`--allow-jeanzay`); over ~10 GPU-hours confirm first. Compute nodes have **no internet**. The shared env there has no `onnx`, so ONNX export is not available on Jean Zay. |
+
+How a job moves:
+
+- `site pick likelihoods` — where the next job should go, with reasons.
+- `site sync <site> likelihoods` — push local commits, fast-forward the site checkout.
+- `site submit <site|auto> likelihoods <job.sh>` — syncs first, reads the job's own
+  header, adds the site's scheduler flags. On lxplus it writes the `.sub` into the
+  AFS submit area and runs `condor_submit` from there.
+- `site poll` / `site logs <run>` / `site fetch <run>` / `site where <run>` — state,
+  log tail, tier-0 results pulled home, and where everything lives.
+- `site shell lxplus --gpu` — an interactive shell on `lxplus-gpu` for a smoke
+  test or a shape check. A 2-minute queued job is worse than 2 minutes there.
+
+Non-negotiable:
+
+- **Infrastructure checks use `scripts/job_probe.sh`** (10 s: site, host, python,
+  torch, GPU). Never a training run.
 - **Never delete anything on a cluster you did not create in the same command.**
-
-Sections below that mention the sshfs mount, `remote.sh` / `lxplus-run`, a per-cluster
-branch, or absolute cluster paths describe the old model and carry a supersession note.
-The AFS/EOS split, the hooks, the science and the conventions are unchanged.
-
----
-
-## Execution model — run LOCALLY, drive lxplus over SSH (read this first)
-
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
-
-The assistant runs on the user's **local machine**, not on an lxplus login node.
-lxplus enforces 2FA, so a session cannot be opened there unattended. The project
-is an **sshfs mount** of CERN storage — local paths *are* the CERN paths, same
-bytes:
-
-| local (where you work) | CERN (what lxplus sees) |
-|---|---|
-| `~/mnt/eos/<project>` | `/eos/user/j/joiturri/<project>` |
-| `~/mnt/afs/<project>` | `/afs/cern.ch/user/j/joiturri/<project>` |
-
-Therefore:
-
-- **All file work is local, zero SSH.** Read/search/edit code, inspect configs and
-  ONNX, read run outputs, **tail Condor logs** — the AFS and EOS logs are on the
-  mount. Use normal file tools; never ssh for these.
-- **Only CERN-side execution crosses the wire:** `condor_submit`, `condor_q`,
-  `condor_rm`, and test runs that need CERN CPU/GPU. Keep it minimal. **Never**
-  run the assistant's own reasoning/tooling on lxplus.
-- **Use the helper:** `lxplus-run <cmd>` (in `~/.local/bin`) runs `<cmd>` on
-  lxplus after `cd`-ing to the CERN equivalent of your current directory, so
-  relative paths in `.sub`/`.sh` files resolve exactly as a manual login-node
-  submit would.
-  - `lxplus-run condor_q`
-  - `lxplus-run -d ~/mnt/afs/<project> condor_submit <job>.sub` — **Condor must be
-    submitted from AFS**; it refuses to submit from EOS.
-- **Quick GPU test → interactive session, not a queued job.** For a smoke test,
-  a shape check, or "does this even start", do **not** submit a short job. Use a
-  GPU-equipped interactive node:
-  - `lxplus-run -g python run.py --smoke-test` — one command on `lxplus-gpu`
-  - `lxplus-run -i` — an interactive shell on `lxplus-gpu`, dropped in this
-    project's CERN directory, for poking around by hand
-  Reserve HTCondor for real training runs. A 2-minute job spent queueing is worse
-  than the same 2 minutes on an interactive GPU node.
-- **You cannot run GPU work from the local shell** — there is no local GPU and no
-  local Condor. It is `lxplus-run` or nothing.
-- **Timeouts go through `-t`, never a local wrapper.** Use
-  `lxplus-run -t 900 <cmd>` (the timeout is applied on lxplus). Do **not** write
-  `timeout 900 lxplus-run ...`: that makes the command line start with `timeout`,
-  which no longer matches the `Bash(lxplus-run:*)` permission rule, so the call
-  falls through to the auto-mode classifier and becomes a coin flip. This is the
-  actual reason submits were sometimes refused and sometimes not.
-- **If the mount or ssh dies, re-up it yourself.** Helpers (`cluster_status`,
-  `sshfs_lxplus`) live in `~/.bash_aliases` and are **not** in the
-  non-interactive tool shell — source them first:
-  `source ~/.bash_aliases && cluster_status`, then `sshfs_lxplus`. Symptoms:
-  file tools hanging, or "Transport endpoint is not connected".
-- **The one thing you cannot do is 2FA.** `lxplus-run` multiplexes over a
-  ControlMaster that lasts ~12h. If it has lapsed the helper stops and says so —
-  ask the user to run `! ssh lxplus` (or `! ssh lxplus-gpu`) once, then retry.
+  A real sweep directory of this project was once deleted by mistake under the
+  assumption that a dry run had created it. Sweep dirs, results and checkpoints are
+  the user's; a test needs a unique name (`zz_probe_*`) and removes only that.
+- **Verify a job ran by reading its log** (`site logs <run>`) before saying so. A
+  job "RUNNING" with an empty log is not working.
 
 ---
 
@@ -111,18 +66,16 @@ Therefore:
      `mlp`. Treat `mup_mlp` as canonical for **new** work; don't assume an existing
      artifact is μP.
 
-2. **Storage is split across two filesystems (EOS + AFS).** See
-   [Filesystem split](#filesystem-split-eos--afs). Code + data + models live in
-   this **EOS** git repo; HTCondor job submission lives on **AFS** (Condor won't
-   submit from EOS). You're typically on a **login node — no GPU**: run CPU-only
-   Python, `git`, data/ONNX inspection, aggregations directly, but **GPU training
-   goes through HTCondor** (submitted from AFS).
-   - **Submitting jobs — confirm first.** Actually submitting `condor_submit`
-     jobs/sweeps uses shared GPU budget: show me the command + how many jobs and
-     **ask before submitting** — *unless I already asked for the submission in the
-     message you are acting on*. An explicit instruction to train, sweep or submit
-     **is** the confirmation; don't ask twice. Generating job files, inspecting
-     queue (`condor_q`), reading logs — do freely.
+2. **GPU work is a job; the local checkout has no GPU.** CPU-only Python, `git`,
+   data/ONNX inspection and aggregations run locally; training goes through
+   `site submit` (HTCondor on lxplus, SLURM elsewhere). On lxplus storage is split
+   across **EOS + AFS** — see [Filesystem split](#filesystem-split-eos--afs).
+   - **Submitting jobs — confirm first.** Actually submitting jobs/sweeps uses
+     shared GPU budget: show me the command + how many jobs and **ask before
+     submitting** — *unless I already asked for the submission in the message you
+     are acting on*. An explicit instruction to train, sweep or submit **is** the
+     confirmation; don't ask twice. Generating job files, `site pick`, `site poll`,
+     reading logs — do freely.
    - **Git is NOT confirm-first.** `git add`/`commit`/`push`/`worktree` happen
      automatically (see [Git workflow](#git--workflow)). Never conflate a `git
      push` with submitting a job.
@@ -165,44 +118,57 @@ Therefore:
 
 ## Filesystem split (EOS + AFS)
 
-The project is deliberately spread across two CERN filesystems:
+On lxplus the project is deliberately spread across two CERN filesystems. In the
+vocabulary of `sites/activate.sh`:
 
-| Filesystem | Path | Holds |
-|-----------|------|-------|
-| **EOS** (this repo) | `/eos/home-j/joiturri/likelihoods` | All code, data, models, configs, `runs/`, sweep engine. The git repo. |
-| **AFS** | `/afs/cern.ch/user/j/joiturri/likelihoods` | HTCondor submission infra: generated `.sh`/`.sub`, logs, sweep state. **Not** a git checkout. |
+| Variable | lxplus path | Holds |
+|---|---|---|
+| **`PROJECT_DIR`** (EOS) | `/eos/user/j/joiturri/likelihoods` | All code, data, models, configs, `runs/`, sweep engine. The git checkout the site tool syncs. |
+| **`SUBMIT_DIR`** (AFS) | `/afs/cern.ch/user/j/joiturri/likelihoods` | HTCondor submission infra: generated `.sh`/`.sub`, logs, sweep state and locks. **Not** a git checkout. |
 
 - `/eos/home-j/joiturri/likelihoods` and `/eos/user/j/joiturri/likelihoods` are
   the **same physical directory** (same inode) — two aliases for the same EOS
-  home. Job scripts use the `/eos/user/...` alias; either works.
-- **Why the split:** HTCondor at CERN refuses to submit from EOS, so all
-  `condor_submit` calls run from AFS. A Condor job's `.sh` `cd`s back into the EOS
-  repo, activates the venv, and runs `python run.py`.
+  home. Scripts use the `/eos/user/...` alias; either works.
+- **Why the split:** HTCondor at CERN refuses to submit from EOS, and EOS has no
+  fcntl advisory locking (the DyHPO state lock needs it), so all `condor_submit`
+  calls run from AFS and sweep state lives there. A Condor job's `.sh` sources
+  `sites/activate.sh` from the EOS checkout and runs the code from there.
 - **Source of truth is EOS.** The training + sweep code is version-controlled
   in-repo (`run.py`, the train/eval stack, `sweep/`); Condor jobs read it directly
-  from EOS — nothing is deployed/synced to AFS. Everything AFS-side that is
+  from EOS — nothing is deployed/synced to AFS except the generators themselves
+  (see [job submission](#job-submission)). Everything AFS-side that is
   *generated* (`jobs/`, `subs/`, `error/`, `log/`, `output/`, `runs/`, `sweeps/`)
   is runtime junk — regenerable, never committed.
+- On the SLURM sites there is no split: `SUBMIT_DIR` **is** `PROJECT_DIR`.
 
 ---
 
 ## Paths
 
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
+Nothing in the code names a cluster. The per-site facts live in
+**`sites/sites.yaml`** (the only file, with `sites/activate.sh`, allowed to), and
+Python reads them through **`siteconf`** (`siteconf.PROJECT_DIR`,
+`siteconf.SUBMIT_DIR`, `siteconf.DATA_DIR`, `siteconf.resolve(cfg)`,
+`siteconf.slurm_header(...)`). Every job script begins with
+`source "$_CCORCH_ROOT/sites/activate.sh"`, which resolves the site, activates its
+env and exports `PROJECT_DIR`, `SUBMIT_DIR`, `DATA_DIR`, `SCRATCH`, `WORK`.
 
-| What | Path |
-|------|------|
-| EOS repo (this) | `/eos/home-j/joiturri/likelihoods` (alias `/eos/user/j/joiturri/likelihoods`) |
-| AFS Condor infra | `/afs/cern.ch/user/j/joiturri/likelihoods` |
-| Python venv (train + ONNX) | `/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env` (Python 3.11) |
-| Comparison baseline (Rafal) | `/eos/home-j/joiturri/Instance1_fr/ML_LHClikelihoods` |
+| What | Where |
+|------|-------|
+| Working copy (you) | `~/work/likelihoods` |
+| Site checkouts | lxplus `/eos/user/j/joiturri/likelihoods` · CC-IN2P3 `/sps/lpnhe/jiturrizaramirez01/likelihoods` · Jean Zay `/lustre/fswork/projects/rech/itg/ulm49ia/likelihoods` |
+| AFS submit area (lxplus only) | `/afs/cern.ch/user/j/joiturri/likelihoods` |
+| Data (`DATA_DIR`) | `<checkout>/data` at every site; configs use `data_path: data/` relative to the checkout. `data/` is multi-GB and gitignored — it is staged per site, not synced by git. |
+| Comparison baseline (Rafal) | `/eos/home-j/joiturri/Instance1_fr/ML_LHClikelihoods` (lxplus only) |
 | Git remote | `git@github.com:joaquin-iturriza/likelihoods.git` |
 
-**Env:** `source /eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env/bin/activate`
-gives torch 2.1.2+cu118, hydra 1.3.2, omegaconf, mup 1.0, torch_geometric, onnx
-1.20 / onnxruntime 1.24, numpy/scipy/sklearn/matplotlib. This one venv covers
-**both** training and ONNX export/inference. (For ONNX-only inference without
-torch, the `LCG_105` cvmfs view also has onnxruntime.)
+**Env per site** (all activated by `sites/activate.sh`, built/verified by `site env`):
+
+| Site | Env |
+|---|---|
+| lxplus | shares amplitude_DSI's venv `/eos/user/j/joiturri/jitu/amplitude_DSI/amplitudes_env` (Python 3.11): torch 2.1.2+cu118, hydra 1.3.2, omegaconf, mup 1.0, torch_geometric, onnx / onnxruntime, numpy/scipy/sklearn/matplotlib. Covers **both** training and ONNX export/inference. (For ONNX-only inference without torch, the `LCG_105` cvmfs view also has onnxruntime.) |
+| CC-IN2P3 | own `.venv` in the checkout: Python 3.12, torch 2.6.0+cu124 (from `requirements.txt`). |
+| Jean Zay | shares the conda env `foundational` (Python 3.11, torch 2.1.2+cu118). **No `onnx`** there. |
 
 ---
 
@@ -228,6 +194,8 @@ torch, the `LCG_105` cvmfs view also has onnxruntime.)
 
 `runs/` is large and **gitignored**. `base_dir` (config) anchors `runs/`;
 `BaseExperiment.__call__` runs `git rev-parse HEAD`, so it assumes cwd is the repo.
+Tier-0 outputs (metrics, configs, small plots) come home with `site fetch <run>`;
+the heavy rest stays on the site (`site where <run>`).
 
 ---
 
@@ -377,51 +345,67 @@ the **predecessor** solving the *identical* problem — yields → 4 nLL deltas
 
 ---
 
-## HTCondor job submission (AFS)
+## Job submission
 
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
+GPU training runs as scheduler jobs. Job files are **generated** site-agnostically
+and **submitted through `site`**; a single hand-picked run is just a 1-trial sweep.
 
-GPU training runs as HTCondor jobs, submitted from **AFS**
-(`/afs/cern.ch/user/j/joiturri/likelihoods`) — Condor refuses to submit from EOS.
-Jobs come from the **DyHPO sweep engine** (see [Sweeps & DyHPO](#sweeps--dyhpo)):
-`sweep/generate_sweep.py` reads a sweep-config YAML and writes one `trial_*.sh` +
-`trial_*.sub` per trial into the AFS sweep dir. Each `.sub` requests 1 GPU
-(excludes MIG, sets `+JobFlavour`, usually `"tomorrow"`); each `.sh` does an EOS
-pre-flight check → `source <venv>/bin/activate` →
-`python sweep/run_trial.py --sweep-config <cfg> --trial-idx <i>` (which invokes
-`run.py`). `run_trial.py` reads the sweep code straight from the EOS repo, so
-there is nothing to sync. A single hand-picked run is just a 1-trial sweep.
-
+- **Generators take every path from `siteconf`.** `condor/generate_jobs_*.py` use
+  `siteconf.PROJECT_DIR` (the EOS checkout) and `siteconf.SUBMIT_DIR` (the AFS
+  area); `sweep/generate_sweep.py` loads its YAML through `siteconf.resolve(cfg)`,
+  which fills `paths.project_dir`, `afs_sweep_dir`, `eos_sweep_dir`,
+  `setup_commands` and `python_env` (= `<PROJECT_DIR>/sites/activate.sh`) for the
+  site it runs on. **Sweep configs carry no site paths** — only `sweep_name`,
+  `n_trials`, the job-owned `cluster` block (`request_gpus`, `request_memory`,
+  `job_flavour`, `requirements`, `priority`), fidelity schedule and search space.
+- **On lxplus**, `generate_sweep.py` writes one `trial_*.sh` + `trial_*.sub` per
+  trial into `<SUBMIT_DIR>/sweeps/<name>/{jobs,subs}` and results dirs under
+  `<PROJECT_DIR>/sweeps/<name>/` on EOS. Each `.sub` requests 1 GPU (excludes MIG,
+  sets `+JobFlavour`, usually `"tomorrow"`); each `.sh` does an EOS pre-flight
+  check → `source <PROJECT_DIR>/sites/activate.sh` →
+  `python sweep/run_trial.py --sweep-config <cfg> --trial-idx <i>` (which invokes
+  `run.py`). `run_trial.py` reads the sweep code straight from the EOS checkout.
+  `scripts/sync_condor_to_afs.sh` copies only the `condor/` generators + templates
+  to AFS (never the runtime dirs); it needs `PROJECT_DIR`/`SUBMIT_DIR` from
+  `sites/activate.sh`.
+- **On the SLURM sites** the header comes from `siteconf.slurm_header(...)`, which
+  emits exactly what that cluster accepts (`--gpus` vs `--gres`, `--mem` or not,
+  CPU ceiling); `site submit` adds partition/account/qos. Job scripts keep only the
+  job-owned `#SBATCH` lines (`--job-name`, `--time`, `--cpus-per-task`,
+  `--gres=gpu:N` as a plain count, `--output`).
+- Generators need the project env (they import `onnx`, `yaml`, `siteconf`), so
+  they run on the site through `site shell <site>` or in a job, never by hand over
+  ssh; generation is free, submission is not.
 - **Submitting jobs — confirm first.** Show me the command + job count and **ask
-  before any `condor_submit`** — *unless I already asked for the submission in the
+  before any submission** — *unless I already asked for the submission in the
   message you are acting on*, in which case that instruction is the confirmation
-  and asking again just costs a round trip. Submit from an AFS cwd (EOS can't
-  submit):
-  `cd <AFS sweep dir>/subs && for f in trial_*.sub; do condor_submit $f; done`.
-- **Always wait on submitted jobs.** After *any* `condor_submit`, launch
-  `scripts/wait_for_jobs.sh` **in the background** so the work is tracked to
-  completion — never fire-and-forget. Pass the submitted cluster IDs, or
-  `--constraint '<expr>'`, or `--sweep-dir <AFS sweep dir>`, or `--mine`. When it
-  returns, proceed to analysis (e.g. `sweep/analyze_sweep.py`). Waiting/polling the
-  queue is *not* the confirm-first action — only the `condor_submit` is.
+  and asking again just costs a round trip.
+- **Always track submitted jobs.** After any submission, follow them to completion
+  with `site poll` / `site logs <run>` — never fire-and-forget. On lxplus itself,
+  `scripts/wait_for_jobs.sh` (cluster IDs, `--constraint`, `--sweep-dir`, `--mine`)
+  blocks until a set of Condor jobs leaves the queue. When they finish, proceed to
+  analysis (e.g. `sweep/analyze_sweep.py`). Polling is *not* the confirm-first
+  action — only the submission is.
 
 ---
 
 ## Sweeps & DyHPO (`sweep/`)
 
 Multi-fidelity HPO (DyHPO surrogate) over training-step budgets, sharing state via
-a lock file on AFS. Mirrors the Condor split:
+a lock file in the sweep dir (on lxplus: AFS, which has the fcntl locks EOS lacks).
 - `sweep/generate_sweep.py` — init a sweep: sample HP candidates, write
-  `dyhpo_state.pkl` to the **AFS** sweep dir, emit one HTCondor `.sh`/`.sub` per
-  trial.
+  `dyhpo_state.pkl` to the sweep dir, emit one job file pair per trial
+  (`--dry-run` generates without initialising state or submitting; `--extend`
+  adds trials to an existing sweep).
 - `sweep/run_trial.py` — per-job entrypoint: lock state → `sampler.suggest()`
   (HP config + fidelity `t_steps`) → warm-start from a lower-fidelity checkpoint
   via `checkpoint_index.py` → `run.py` → lock → `sampler.observe(...)`.
 - `sweep/dyhpo_sampler.py`, `sweep/dyhpo/`, `sweep/analyze_sweep.py` — sampler,
   surrogate, analysis.
 - **Naming:** `sweep/` (singular) = the engine source, version-controlled;
-  `sweeps/` (plural) = generated per-sweep state/outputs, runtime junk (exists on
-  both EOS and AFS — don't confuse them).
+  `sweeps/` (plural) = generated per-sweep state/outputs, runtime junk (on lxplus
+  it exists on both EOS and AFS — don't confuse them). Existing sweep dirs are
+  results; see the deletion rule at the top.
 
 ---
 
@@ -439,8 +423,8 @@ a lock file on AFS. Mirrors the Condor split:
   `.onnx` in `models_onnx/` (deployed) both key off the ATLAS analysis; keep the
   mapping straight when comparing (`SUSY-2019-09_Onshell_Winobino` ↔
   `2106.01676-onshell-winobino-…`).
-- **`._*` / `.DS_Store` files** are macOS AppleDouble/Finder junk from an SMB
-  mount — always ignore/delete, never commit (gitignored).
+- **`._*` / `.DS_Store` files** are macOS AppleDouble/Finder junk — always
+  ignore/delete, never commit (gitignored).
 - **Big binaries** (`pdflatex.sif`, `*.onnx`, `*.tar`) are gitignored — never
   commit them.
 - **One-off vs reusable scripts:** reusable analysis tools live in `tools/`;
@@ -451,48 +435,49 @@ a lock file on AFS. Mirrors the Condor split:
 
 ## Git & workflow
 
-> **Superseded on 2026-09-22** — see *Where this runs* at the top: local checkout `~/work/likelihoods`, one branch (`trunk`), sites via the `site` tool. Kept for history.
-
 Fresh-started history (the old `amplitude_DSI` history was intentionally dropped;
 kept as the local tag `backup/amplitude_DSI-history`). **Development trunk +
 generated public core**, mirroring the reference project:
 
-- **`lxplus`** — the **development trunk and default working branch.**
+- **`trunk`** — the **development trunk and the only working branch.**
   *Everything* lives here: the core train/eval stack, `condor/`, `sweep/`,
-  `tools/`, `tests/`, `scripts/`, `CLAUDE.md`, `.claude/`. All development happens
-  on `lxplus`.
+  `tools/`, `tests/`, `scripts/`, `sites/`, `CLAUDE.md`, `.claude/`. All
+  development happens on `trunk`, and every site checkout tracks it. A retired
+  branch named `lxplus` still exists on GitHub; it has no commits `trunk` lacks
+  and must not be used.
 - **`main`** — the **clean, minimal public core.** It is a *build artifact* of
-  `lxplus`, regenerated by `scripts/publish_main.sh` from the
+  `trunk`, regenerated by `scripts/publish_main.sh` from the
   `.claude/public_paths.txt` allowlist (runnable core only: `run.py`, the
   experiment/train stack, `models/`, `config/`, `preprocessing.py`, the ONNX
   deployment scripts, `IntrinsicDimDeep/`, `README.md`). **Never edit `main` by
-  hand; never merge `lxplus → main`.** To change what's public, edit the allowlist
+  hand; never merge `trunk → main`.** To change what's public, edit the allowlist
   and re-publish.
 
-Claude handles git: commit and push as work lands on `lxplus`, keep a readable
+Claude handles git: commit and push as work lands on `trunk`, keep a readable
 timeline. **This is automatic — never ask permission to commit or push** (ground
 rule #2); pushing is not an outward action needing confirmation, and is not the
-same as submitting a Condor job.
+same as submitting a job. A push does not deploy anything: `site sync` (run by
+`site submit`) is what moves a commit onto a site.
 
 **Working rules**
-1. Do work on `lxplus` (or a feature branch off it).
+1. Do work on `trunk` (or a feature branch off it).
 2. Open a worktree for non-trivial feature work: `git worktree add ../wt-<feat> -b
-   <feat> lxplus`, implement + verify there, merge back into `lxplus`, remove the
-   worktree. The `worktree_guard.sh` hook nudges you when editing trunk on
-   `lxplus` without one; for quick standalone edits, proceed on trunk.
+   <feat> trunk`, implement + verify there, merge back into `trunk`, remove the
+   worktree. The `worktree_guard.sh` hook nudges you when editing trunk without
+   one; for quick standalone edits, proceed on trunk.
 3. Commit small and often; the `auto_push.sh` `Stop` hook pushes committed
-   `lxplus`/feature-branch work at end of turn — **never `main`** (a generated
+   `trunk`/feature-branch work at end of turn — **never `main`** (a generated
    artifact). You don't need to remember `git push`.
 4. Regenerate the public core with `scripts/publish_main.sh` after core-facing
-   changes land on `lxplus` (`--no-push` to review first).
+   changes land on `trunk` (`--no-push` to review first).
 
 The AFS Condor side is **not** a branch — it only holds generated jobs/logs/sweep
-state; Condor jobs read the training + sweep code directly from the EOS repo (see
-[Filesystem split](#filesystem-split-eos--afs)).
+state; Condor jobs read the training + sweep code directly from the EOS checkout
+(see [Filesystem split](#filesystem-split-eos--afs)).
 
 Hooks in `.claude/` back these rules (`settings.json` → `hooks/`, wired via
-`$CLAUDE_PROJECT_DIR` so they fire both on lxplus and on the local sshfs mount):
-`attribution_guard.sh` (hard block on any Claude/Anthropic attribution in
-commits, pushes, `gh` calls), `md_guard.sh` (no scattered `.md`), `auto_push.sh`
-(auto-push `lxplus`, never `main`), `worktree_guard.sh` (worktree nudge on
-`lxplus`), `figure_pair_guard.sh` (png+pdf pairing).
+`$CLAUDE_PROJECT_DIR`): `attribution_guard.sh` (hard block on any
+Claude/Anthropic attribution in commits, pushes, `gh` calls), `md_guard.sh` (no
+scattered `.md`), `auto_push.sh` (auto-push `trunk`, never `main`),
+`worktree_guard.sh` (worktree nudge on `trunk`), `figure_pair_guard.sh` (png+pdf
+pairing).
