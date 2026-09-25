@@ -14,8 +14,12 @@ __all__ = [
 ]
 
 import numpy as np
-import autograd
-import autograd.numpy as anp
+try:
+    import autograd
+    import autograd.numpy as anp
+except ImportError:  # only undo_preprocess_nLLs_errors needs autograd
+    autograd = None
+    anp = np
 from typing import Optional
 
 

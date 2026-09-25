@@ -152,6 +152,18 @@ def pick_reference(paths, own, stats, log):
     return ref
 
 
+def run_log_times(path):
+    """(YYYY-MM-DD, HH:MM:SS) from a run log's first and 'Finished experiment' lines."""
+    import datetime
+    stamp = lambda line: datetime.datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
+    lines = open(path).read().splitlines()
+    start = stamp(lines[0])
+    done = [l for l in lines if "Finished experiment" in l]
+    assert done, f"{path}: run did not finish"
+    secs = int((stamp(done[-1]) - start).total_seconds())
+    return start.date().isoformat(), f"{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}"
+
+
 def duration_hms(text):
     """'1 hours 1 minutes 8 seconds' -> '01:01:08'."""
     m = re.match(r"^\s*(\d+) hours (\d+) minutes (\d+) seconds\s*$", str(text).strip('"'))
@@ -168,6 +180,9 @@ def main():
     ap.add_argument("--training-date", default=None,
                     help="YYYY-MM-DD, for runs whose run_config has no timestamp (read it from the run log)")
     ap.add_argument("--training-duration", default=None, help="HH:MM:SS, likewise")
+    ap.add_argument("--run-log", default=None,
+                    help="the run's out_<idx>.log: training date and duration from its first "
+                         "line and its 'Finished experiment' line")
     ap.add_argument("--reference-onnx", action="append", default=[],
                     help="candidate generation-pipeline ONNX to take statistical-model and "
                          "generation metadata from (repeatable; exactly one must match)")
@@ -241,6 +256,9 @@ def main():
         for d_val, dur in zip(meta.get("training_date", []), meta.get("training_duration", [])):
             if d_val.strip('"').startswith(date):
                 duration = duration_hms(dur)
+    elif args.run_log:
+        date, duration = run_log_times(args.run_log)
+        log.append(f"training_date/duration from {args.run_log}: {date} {duration}")
     elif args.training_date:
         date, duration = args.training_date, args.training_duration
         log.append(f"training_date/duration from the command line: {date} {duration}")
