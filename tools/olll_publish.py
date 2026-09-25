@@ -127,14 +127,27 @@ def pick_reference(paths, own, stats, log):
         if "lower_limits" not in ref:
             why.append("no lower_limits")
         else:
+            # lower_limits bound the sampled yields BEFORE signal leakage: with
+            # signal_leakage_CR/VR on, that region's yields are then varied by up
+            # to +-spread and can fall below it. Compare only regions without
+            # leakage (always the SRs).
             names = [b[0] for b in ref["bkg_yields"]]
             rm = set(ref.get("remove_channels") or [])
-            lo = [v for n, v in zip(names, ref["lower_limits"]) if n.rsplit("-", 1)[0] not in rm]
-            if len(lo) != len(stats["x_min"]):
-                why.append(f"{len(lo)} active bins vs {len(stats['x_min'])} inputs")
-            elif np.max(np.abs(np.asarray(lo) - np.asarray(stats["x_min"]))) > 1e-3:
-                why.append("lower_limits != training-data minima "
-                           f"(max diff {np.max(np.abs(np.asarray(lo) - np.asarray(stats['x_min']))):.3g})")
+            chan = ref["channels"]
+            chan = {k: v for d in (chan if isinstance(chan, list) else [chan]) for k, v in d.items()}
+            leaky = {c for c, t in chan.items()
+                     if (t == "CR" and ref.get("signal_leakage_CR")) or (t == "VR" and ref.get("signal_leakage_VR"))}
+            active = [(n, v) for n, v in zip(names, ref["lower_limits"]) if n.rsplit("-", 1)[0] not in rm]
+            if len(active) != len(stats["x_min"]):
+                why.append(f"{len(active)} active bins vs {len(stats['x_min'])} inputs")
+            else:
+                cmp = [(v, x) for (n, v), x in zip(active, stats["x_min"]) if n.rsplit("-", 1)[0] not in leaky]
+                diff = max(abs(v - x) for v, x in cmp)
+                if diff > 1e-3:
+                    why.append(f"lower_limits != training-data minima on non-leakage bins (max diff {diff:.3g})")
+                elif len(cmp) < len(active):
+                    log.append(f"reference {path}: lower_limits compared on {len(cmp)} of "
+                               f"{len(active)} bins ({len(active) - len(cmp)} with signal leakage)")
         for key, mu0, idx in (("nLL_exp_max", stats["mu0"][0], 1), ("nLLA_exp_max", stats["mu0"][2], 1)):
             if key not in ref:
                 why.append(f"no {key}")
