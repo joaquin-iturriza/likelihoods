@@ -300,8 +300,18 @@ by the consumer (`nnAdapter.py`).
   `models_onnx/Ewkinos_combined.onnx` was built.
 - **`update_metadata.py`** — publish-time normalizer over all `models_onnx/*.onnx`:
   strips the `rafal::` prefix, drops sampling-pipeline keys, sets
-  `model_author="Joaquin Iturriaga"` + model name/params/date, recomputes
-  `x/y_min/max` from the training split.
+  `model_author` (from `olll_metadata.MODEL_AUTHOR` = "Joaquin Iturriza Ramirez")
+  + model name/params/date, recomputes `x/y_min/max` from the training split.
+- **OLLL metadata schema v0.1** (S. Kraml; template + validator vendored as
+  `tools/olll_schema_v0.1_template.*`, `tools/olll_validate.py`) is the standard
+  for every published file. `olll_metadata.py` builds it (one place for key
+  names, order, author, HEPData `source` per analysis). To republish an existing
+  file: `tools/olll_training_stats.py` on a site with the data (`site run`), then
+  `tools/olll_publish.py IN OUT --analysis ... --stats ...` locally — it picks the
+  metadata that reproduces held-out data, checks the architecture against the
+  graph, keeps the graph byte-identical and must pass `olll_validate.py`. The
+  exporters do NOT emit v0.1 yet; run their output through `olll_publish.py`.
+  `tools/onnx_fingerprint.py` identifies a network by graph hash across sites.
 - **Metadata schema:** `standardization` (JSON: `features_mean/std`,
   `nLLs_mean/std`, optional bounds), `preprocessing` (feature/nLL pipelines),
   `run_config` (full training YAML), `x/y_min/max`, and the inherited `μ=0`

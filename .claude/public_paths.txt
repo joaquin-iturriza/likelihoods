@@ -31,6 +31,7 @@ preprocessing_nnAdapter.py
 export_onnx_from_run.py
 export_combined_onnx.py
 update_metadata.py
+olll_metadata.py
 
 # --- meta ---
 README.md

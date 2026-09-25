@@ -34,7 +34,7 @@ import yaml
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_ONNX_DIR = os.path.join(BASE_DIR, "models_onnx")
 
-MODEL_AUTHOR = "Joaquin Iturriaga"
+from olll_metadata import MODEL_AUTHOR
 
 # Reference-model keys that never survive publication. export_onnx_from_run.py
 # imports this set, so the two stages cannot drift apart.
@@ -64,7 +64,9 @@ REFERENCE_KEYS_TO_DROP = {
     "signal_leakage_VR", "signal_leakage_VR_spread", "signal_leakage_VR_sign",
     "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
     "lower_limits", "upper_limits", "initial_lower_limits",
-    "nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max",
+    # NOT nLL_*_max: OLLL v0.1 requires them. They are properties of the
+    # statistical model ([mu_hat, nLL(mu_hat)]), not of the reference scan, and
+    # agree with our mu=0 baselines (same likelihood normalisation).
     # the reference likelihood configuration. NOT remove_channels/removeCRsVRs:
     # nnAdapter._parseMetaData prunes smYields by remove_channels and _getSROrder
     # derives the canonical input ordering from what is left, so dropping it
