@@ -17,9 +17,15 @@ Nothing is taken on trust from the input file's metadata:
      graph.
   3. Bounds and mu=0 baselines come from the training data (--stats); stored
      baselines that disagree are reported.
-  4. Metadata is rebuilt by olll_metadata.build_metadata; the graph must come
+  4. With --reference-onnx (candidates from the data-generation pipeline, R.
+     Maselek's ML_LHClikelihoods/models), the statistical-model and generation
+     fields come from the one candidate that (a) describes the same statistical
+     model and inputs as IN, (b) whose recorded sampling lower_limits equal the
+     training data's minima, and (c) whose *_max share the training data's nLL
+     normalisation. Needed when IN was exported without them.
+  5. Metadata is rebuilt by olll_metadata.build_metadata; the graph must come
      out byte-identical.
-  5. The written file is decoded again from its own metadata alone and must
+  6. The written file is decoded again from its own metadata alone and must
      pass the same closure test, then S. Kraml's validator (tools/olll_validate.py)
      with no errors.
 """
@@ -89,6 +95,63 @@ def graph_architecture(model):
     return shapes[0][1], widths[0], len(shapes) - 1, shapes[-1][0]
 
 
+def decode_reference(meta):
+    reference = {}
+    for key in REFERENCE_KEYS:
+        vals = set(meta.get(key, []))
+        assert len(vals) <= 1, f"{key}: {len(vals)} conflicting reference values"
+        if vals:
+            v = vals.pop()
+            try:
+                reference[key] = json.loads(v)
+            except ValueError:
+                reference[key] = v
+    return reference
+
+
+# fields that fix the statistical model and the input contract
+MODEL_FIELDS = ["bkg_yields", "obs_yields", "bkg_unc", "remove_channels", "removeCRsVRs"]
+
+
+def pick_reference(paths, own, stats, log):
+    """The one candidate whose record belongs to this model's training data."""
+    passing = []
+    for path in paths:
+        ref = decode_reference(multimap(onnx.load(path, load_external_data=False)))
+        why = []
+        for k in MODEL_FIELDS:
+            if k in own and ref.get(k) != own[k]:
+                why.append(f"{k} differs")
+        if own.get("channels") is not None and ref.get("channels") != own["channels"]:
+            why.append("channels differ")
+        if "lower_limits" not in ref:
+            why.append("no lower_limits")
+        else:
+            names = [b[0] for b in ref["bkg_yields"]]
+            rm = set(ref.get("remove_channels") or [])
+            lo = [v for n, v in zip(names, ref["lower_limits"]) if n.rsplit("-", 1)[0] not in rm]
+            if len(lo) != len(stats["x_min"]):
+                why.append(f"{len(lo)} active bins vs {len(stats['x_min'])} inputs")
+            elif np.max(np.abs(np.asarray(lo) - np.asarray(stats["x_min"]))) > 1e-3:
+                why.append("lower_limits != training-data minima "
+                           f"(max diff {np.max(np.abs(np.asarray(lo) - np.asarray(stats['x_min']))):.3g})")
+        for key, mu0, idx in (("nLL_exp_max", stats["mu0"][0], 1), ("nLLA_exp_max", stats["mu0"][2], 1)):
+            if key not in ref:
+                why.append(f"no {key}")
+            elif abs(ref[key][idx] - mu0) > MU0_TOL:
+                why.append(f"{key} nLL {ref[key][idx]:.6f} vs data mu0 {mu0:.6f}: other normalisation")
+        log.append(f"reference {path}: " + ("MATCH" if not why else "; ".join(why)))
+        if not why:
+            passing.append((path, ref))
+    assert passing, "no --reference-onnx candidate matches the training data"
+    gen = {json.dumps(om.normalize_generation(r), sort_keys=True)
+           + json.dumps([r.get(k) for k in om.MAX_KEYS]) for _, r in passing}
+    assert len(gen) == 1, f"ambiguous: {len(passing)} candidates match with different records"
+    path, ref = passing[0]
+    log.append(f"statistical-model and generation metadata from {path}")
+    return ref
+
+
 def duration_hms(text):
     """'1 hours 1 minutes 8 seconds' -> '01:01:08'."""
     m = re.match(r"^\s*(\d+) hours (\d+) minutes (\d+) seconds\s*$", str(text).strip('"'))
@@ -105,6 +168,9 @@ def main():
     ap.add_argument("--training-date", default=None,
                     help="YYYY-MM-DD, for runs whose run_config has no timestamp (read it from the run log)")
     ap.add_argument("--training-duration", default=None, help="HH:MM:SS, likewise")
+    ap.add_argument("--reference-onnx", action="append", default=[],
+                    help="candidate generation-pipeline ONNX to take statistical-model and "
+                         "generation metadata from (repeatable; exactly one must match)")
     ap.add_argument("--drop-generation-key", action="append", default=[],
                     help="a recorded generation setting that does not hold for the training "
                          "dataset (e.g. a filter record for a filter it never went through)")
@@ -122,12 +188,9 @@ def main():
     log = []
 
     # -- reference (statistical-model) fields: must be unambiguous as they are
-    reference = {}
-    for key in REFERENCE_KEYS:
-        vals = set(meta.get(key, []))
-        assert len(vals) <= 1, f"{key}: {len(vals)} conflicting reference values"
-        if vals:
-            reference[key] = json.loads(vals.pop())
+    reference = decode_reference(meta)
+    if args.reference_onnx:
+        reference = pick_reference(args.reference_onnx, reference, stats, log)
     alt = reference.get("analysis_altname")
     assert alt in (None, args.analysis), f"file says {alt}, --analysis says {args.analysis}"
     if "analysis" in reference:
