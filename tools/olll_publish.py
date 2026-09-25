@@ -105,6 +105,9 @@ def main():
     ap.add_argument("--training-date", default=None,
                     help="YYYY-MM-DD, for runs whose run_config has no timestamp (read it from the run log)")
     ap.add_argument("--training-duration", default=None, help="HH:MM:SS, likewise")
+    ap.add_argument("--drop-generation-key", action="append", default=[],
+                    help="a recorded generation setting that does not hold for the training "
+                         "dataset (e.g. a filter record for a filter it never went through)")
     ap.add_argument("--filtering", default=None,
                     help="how the training dataset was derived from the generated scan "
                          "(our filtering); omit if used as generated")
@@ -188,6 +191,9 @@ def main():
         log.append(f"bounds exclude {stats['n_sentinel_train_rows']} failed-fit rows (|nLL|>=1e9)")
 
     generation = om.normalize_generation(reference)
+    for k in args.drop_generation_key:
+        assert k in generation, f"--drop-generation-key {k}: not in the file"
+        log.append(f"dropped generation key {k}={json.dumps(generation.pop(k))} (does not hold for the training dataset)")
     training_dataset = {"name": stats["dataset"], "n_rows": stats["n_rows"],
                         "filtering": args.filtering or "none recorded in the training code"}
     new_meta = om.build_metadata(
