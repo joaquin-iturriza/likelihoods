@@ -164,7 +164,24 @@ def pick_reference(paths, own, stats, log):
         "\n  ".join(l for l in log if l.startswith("reference "))
     record = lambda r: (json.dumps(om.normalize_generation(r), sort_keys=True)
                         + json.dumps([r.get(k) for k in om.MAX_KEYS]))
+
+    def union_if_consistent(cands):
+        """One record from files that agree on every key they share, else None.
+        (The same scan recorded more or less completely, e.g. one file adds merged.)"""
+        merged = {}
+        for _, r in cands:
+            for k, v in r.items():
+                if k in merged and merged[k] != v:
+                    return None
+                merged[k] = v
+        return merged
+
     if len({record(r) for _, r in passing}) > 1:
+        union = union_if_consistent(passing)
+        if union is not None:
+            log.append(f"{len(passing)} candidates match and agree on every shared key; "
+                       f"using their union ({', '.join(p for p, _ in passing)})")
+            return union
         # One scan grown in steps (100k, 200k, 400k, ...) leaves one file per
         # step, all consistent with the data; the pipeline's folder_name names
         # the step, and our dataset keeps that name ('%' -> '_' on disk).
