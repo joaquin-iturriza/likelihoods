@@ -43,7 +43,10 @@ RELEASE = [
     ("SUSY-2019-08", "ATLAS-SUSY-2019-08", None,
      "1909.09226-leakage-10_", "1909.09226", []),
     ("SUSY-2019-09_Onshell_Winobino", "ATLAS-SUSY-2019-09", "Onshell-WinoBino",
-     "2106.01676-onshell-winobino-fluct25_-300k", "2106.01676", []),
+     "2106.01676-onshell-winobino-fluct25_-300k", "2106.01676",
+     # the generation record's z=5 filter (268800 -> 268321) was not applied to
+     # this dataset (268798 rows)
+     ["--drop-generation-key", "filtering_applied", "--drop-generation-key", "total_points"]),
     ("SUSY-2019-09_Offshell_Winobino_Plus", "ATLAS-SUSY-2019-09", "Offshell-WinoBino-plus",
      "2106.01676-offshell-winobino-plus-fluct20_-300k", "2106.01676", []),
     ("SUSY-2019-09_Offshell_Winobino_Minus_asinh", "ATLAS-SUSY-2019-09", "Offshell-WinoBino-minus",

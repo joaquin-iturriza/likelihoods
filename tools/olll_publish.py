@@ -190,15 +190,23 @@ def pick_reference(paths, own, stats, log):
             vals = [json.dumps(r.get(k))[:60] for _, r in passing]
             if len(set(vals)) > 1:
                 log.append(f"candidates differ on {k}: " + " || ".join(vals))
-        named = [(p, r) for p, r in passing
-                 if str(r.get("folder_name", "")).replace("%", "_") == stats["dataset"]]
-        log.append(f"{len(passing)} candidates match; {len(named)} with folder_name == {stats['dataset']}")
+        # (or its prefix up to a '-': '2106.01676-offshell-winobino-plus' for
+        # '2106.01676-offshell-winobino-plus-fluct20_-300k'; the offshell scans
+        # share one statistical model and differ only in the signal patchset).
+        def names_dataset(folder):
+            folder = str(folder or "").replace("%", "_")
+            return bool(folder) and (stats["dataset"] == folder or stats["dataset"].startswith(folder + "-"))
+        named = [(p, r) for p, r in passing if names_dataset(r.get("folder_name"))]
+        log.append(f"{len(passing)} candidates match; {len(named)} whose folder_name names {stats['dataset']}")
         passing = named
     assert passing and len({record(r) for _, r in passing}) == 1, \
         "ambiguous: no single generation record for this dataset:\n  " + \
         "\n  ".join(l for l in log if ": MATCH" in l or "candidates" in l)
     path, ref = passing[0]
     log.append(f"statistical-model and generation metadata from {path}")
+    if "patchsets" in own:
+        log.append("input file's own patchsets " + ("agree" if own["patchsets"] == ref.get("patchsets")
+                                                   else f"DIFFER: {json.dumps(own['patchsets'])}"))
     return ref
 
 
