@@ -185,13 +185,18 @@ def pick_reference(paths, own, stats, log):
         # One scan grown in steps (100k, 200k, 400k, ...) leaves one file per
         # step, all consistent with the data; the pipeline's folder_name names
         # the step, and our dataset keeps that name ('%' -> '_' on disk).
+        keys = sorted(set().union(*(r.keys() for _, r in passing)))
+        for k in keys:
+            vals = [json.dumps(r.get(k))[:60] for _, r in passing]
+            if len(set(vals)) > 1:
+                log.append(f"candidates differ on {k}: " + " || ".join(vals))
         named = [(p, r) for p, r in passing
                  if str(r.get("folder_name", "")).replace("%", "_") == stats["dataset"]]
         log.append(f"{len(passing)} candidates match; {len(named)} with folder_name == {stats['dataset']}")
         passing = named
     assert passing and len({record(r) for _, r in passing}) == 1, \
         "ambiguous: no single generation record for this dataset:\n  " + \
-        "\n  ".join(l for l in log if l.startswith("reference ") or "candidates match" in l)
+        "\n  ".join(l for l in log if ": MATCH" in l or "candidates" in l)
     path, ref = passing[0]
     log.append(f"statistical-model and generation metadata from {path}")
     return ref
