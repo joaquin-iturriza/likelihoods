@@ -28,6 +28,8 @@ STATS = os.path.join(ROOT, "scratch", "olll_stats")
 GENERATION_MODELS = "/eos/home-j/joiturri/Instance1_fr/ML_LHClikelihoods/models"
 
 CLEANED = "rows with any |delta nLL| < 1e-6 removed (data/clean_data.py)"
+# the CSV as generated, converted row for row (data/conv_csv_npy.py)
+NONE = ["--filtering", "none"]
 OBS40 = "rows with delta nLL_obs > 40 removed from the filtered scan (filtering_applied)"
 
 # name, analysis, label, training dataset, arXiv of the generation files, extra args
@@ -37,22 +39,25 @@ RELEASE = [
     ("SUSY-2018-16_EWkinos_obs40cut", "ATLAS-SUSY-2018-16", "EWKinos",
      "1911.12606-EWKinos-1M-z4-nll400-delta200-obs40cut", "1911.12606", ["--filtering", OBS40]),
     ("SUSY-2018-16_Sleptons", "ATLAS-SUSY-2018-16", "Sleptons",
-     "1911.12606-sleptons-200k-fluct20_", "1911.12606", []),
+     "1911.12606-sleptons-200k-fluct20_", "1911.12606", NONE),
     ("SUSY-2018-32", "ATLAS-SUSY-2018-32", None,
-     "1908.08215-400k-fluct20_", "1908.08215", []),
+     "1908.08215-400k-fluct20_", "1908.08215", NONE),
     ("SUSY-2019-08", "ATLAS-SUSY-2019-08", None,
-     "1909.09226-leakage-10_", "1909.09226", []),
+     "1909.09226-leakage-10_", "1909.09226", NONE),
     ("SUSY-2019-09_Onshell_Winobino", "ATLAS-SUSY-2019-09", "Onshell-WinoBino",
      "2106.01676-onshell-winobino-fluct25_-300k", "2106.01676",
      # the generation record's z=5 filter (268800 -> 268321) was not applied to
-     # this dataset (268798 rows)
-     ["--drop-generation-key", "filtering_applied", "--drop-generation-key", "total_points"]),
+     # this dataset; ours removed only the two failed fits (268800 -> 268798,
+     # checked against the original kept as .npy.bak)
+     ["--drop-generation-key", "filtering_applied", "--drop-generation-key", "total_points",
+      "--filtering", "2 rows with a failed observed fit removed "
+                     "(nLL_obs(mu=1) = 1e10 placeholder): 268800 -> 268798"]),
     ("SUSY-2019-09_Offshell_Winobino_Plus", "ATLAS-SUSY-2019-09", "Offshell-WinoBino-plus",
-     "2106.01676-offshell-winobino-plus-fluct20_-300k", "2106.01676", []),
+     "2106.01676-offshell-winobino-plus-fluct20_-300k", "2106.01676", NONE),
     ("SUSY-2019-09_Offshell_Winobino_Minus_asinh", "ATLAS-SUSY-2019-09", "Offshell-WinoBino-minus",
-     "2106.01676-offshell-winobino-minus-300k-fluct20_", "2106.01676", []),
+     "2106.01676-offshell-winobino-minus-300k-fluct20_", "2106.01676", NONE),
     ("SUSY-2019-09_Offshell_Higgsinos", "ATLAS-SUSY-2019-09", "Offshell-Higgsino",
-     "2106.01676-offshell-higgsino-300k-fluct20_", "2106.01676", []),
+     "2106.01676-offshell-higgsino-300k-fluct20_", "2106.01676", NONE),
 ]
 
 

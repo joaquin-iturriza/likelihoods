@@ -39,13 +39,16 @@ MAX_KEYS = ["nLL_exp_max", "nLL_obs_max", "nLLA_exp_max", "nLLA_obs_max"]
 
 # Source documentation per ATLAS analysis. `reference` is the DOI of the HEPData
 # resource holding the full-likelihood archive (checked against hepdata.net);
-# the file inside it is recorded per model (`filename`), since one archive
-# carries several background-only models.
+# the file inside it is recorded per model (`filename`, its path inside the
+# archive, checked against the archive listing), since one archive carries
+# several background-only models.
 ANALYSES = {
     "ATLAS-SUSY-2018-04": {"arxiv": "1911.06660", "inspire_id": "1765529",
                            "doi": "10.17182/hepdata.92006.v2/r2"},
     "ATLAS-SUSY-2018-16": {"arxiv": "1911.12606", "inspire_id": "1767649",
-                           "doi": "10.17182/hepdata.91374.v5/r6"},
+                           "doi": "10.17182/hepdata.91374.v5/r6",
+                           # the background-only files sit in this folder of the archive
+                           "archive_dir": "statistical_models/"},
     "ATLAS-SUSY-2018-32": {"arxiv": "1908.08215", "inspire_id": "1750597",
                            "doi": "10.17182/hepdata.89413.v4/r5"},
     "ATLAS-SUSY-2019-08": {"arxiv": "1909.09226", "inspire_id": "1755298",
@@ -60,15 +63,20 @@ ANALYSES = {
 # 'start method' (with a space) is a stale entry of sampling/default_params.py
 # that the sampler never reads: start_method wins when both are present.
 # 'scan' is an older spelling of scans.
+# Every file carries every one of these keys, null where the pipeline did not
+# record it for that scan (OLLL: the same fields in every published file).
+# Not included: bkgfiles (source.statistical_model.filename says it; the list
+# named every model of the archive) and 'modified' (written by no known code,
+# meaning unknown). patchsets is reduced to the one patchset the scan used.
 GENERATION_KEYS = [
-    "analysis", "analysis_altname", "analyses", "bkgfiles", "patchsets", "merged",
+    "analysis", "analysis_altname", "analyses", "patchsets", "merged",
     "fit_bkg", "scan_criterion", "scans", "points", "total_points", "seed",
     "start_method", "cluster", "bkg_unc_samples", "low_lim_samples",
     "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
     "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_CR_sign",
     "signal_leakage_VR", "signal_leakage_VR_spread", "signal_leakage_VR_sign",
     "lower_limits", "upper_limits", "initial_lower_limits",
-    "folder_name", "filtering_applied", "modified",
+    "folder_name", "filtering_applied",
 ]
 LEGACY_SPELLINGS = {"start method": "start_method", "scan": "scans"}
 
@@ -237,7 +245,7 @@ def build_metadata(*, analysis_id, model_name, run_config, standardization, refe
         ("statistical_model", OrderedDict([
             ("type", "histfactory"),
             ("reference", f"https://doi.org/{src['doi']}"),
-            ("filename", bkgfile),
+            ("filename", src.get("archive_dir", "") + bkgfile),
         ])),
     ]))
     meta["input_type"] = "total_yields"
@@ -261,8 +269,10 @@ def build_metadata(*, analysis_id, model_name, run_config, standardization, refe
         meta[key] = _dumps([float(mu_hat), float(nll)])
     meta["training_dataset"] = _dumps(training_dataset)
     for key in GENERATION_KEYS:
-        if key in generation:
-            meta[key] = _dumps(generation[key])
+        value = generation.get(key)
+        if key == "patchsets" and isinstance(value, list):
+            value = [p for p in value if isinstance(p, list) and len(p) == 2 and p[1]] or value
+        meta[key] = _dumps(value)
     return meta
 
 
