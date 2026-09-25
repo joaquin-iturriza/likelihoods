@@ -12,11 +12,16 @@ What goes in, and where each value comes from:
   - model identity/parameters/run_config  <- the run that produced the weights
   - source                                <- ANALYSES below (HEPData records)
   - channels/yields/removal/*_max         <- the statistical model, as recorded
-                                             by the reference (sampling) pipeline
+                                             by R. Maselek's data-generation pipeline
+  - GENERATION_KEYS                       <- that pipeline's settings for the scan
+                                             our training data was drawn from
+                                             (he generated the data; we filtered it)
+  - training_dataset                      <- our dataset and the filtering we applied
   - bounds, *_mu0                         <- our training data
   - preprocessing/standardization         <- the run that produced the weights
-Nothing else is carried over: keys that described the reference model's own
-network or its sampling run are not written.
+Not carried over: the reference file's own network/training description (a
+different model) and the generation pipeline's plumbing (folders, buffers,
+process count, verbosity), which says nothing about the data.
 """
 
 import json
@@ -48,6 +53,45 @@ ANALYSES = {
     "ATLAS-SUSY-2019-09": {"arxiv": "2106.01676", "inspire_id": "1866951",
                            "doi": "10.17182/hepdata.95751.v2/r3"},
 }
+# Data-generation settings recorded by the generation pipeline, kept verbatim.
+# start_method is how the sampler draws its starting points
+# (default/random/fine-tune/edges; ML_LHClikelihoods sampling/utils.py), not the
+# multiprocessing start method (hard-coded 'spawn' in sampling/sample.py).
+# 'start method' (with a space) is a stale entry of sampling/default_params.py
+# that the sampler never reads: start_method wins when both are present.
+# 'scan' is an older spelling of scans.
+GENERATION_KEYS = [
+    "analysis", "analysis_altname", "analyses", "bkgfiles", "patchsets", "merged",
+    "fit_bkg", "scan_criterion", "scans", "points", "total_points", "seed",
+    "start_method", "cluster", "bkg_unc_samples", "low_lim_samples",
+    "SR_sigma", "CR_sigma", "VR_sigma", "CR_center", "VR_center",
+    "signal_leakage_CR", "signal_leakage_CR_spread", "signal_leakage_CR_sign",
+    "signal_leakage_VR", "signal_leakage_VR_spread", "signal_leakage_VR_sign",
+    "lower_limits", "upper_limits", "initial_lower_limits",
+    "folder_name", "filtering_applied", "modified",
+]
+LEGACY_SPELLINGS = {"start method": "start_method", "scan": "scans"}
+
+
+def normalize_generation(raw):
+    """Generation settings keyed by GENERATION_KEYS, legacy spellings folded in.
+
+    `raw` maps key -> decoded value. The current spelling always wins; a 'scan'
+    that disagrees with 'scans' is an error, not something to choose silently.
+    """
+    out = {}
+    if "start method" in raw:
+        out["start_method"] = raw["start method"]   # only if start_method is absent
+    if "scan" in raw:
+        if "scans" in raw:
+            assert raw["scan"] == raw["scans"], f"scan={raw['scan']!r} vs scans={raw['scans']!r}"
+        out["scans"] = raw["scan"]
+    for k in GENERATION_KEYS:
+        if k in raw:
+            out[k] = raw[k]
+    return out
+
+
 SQRT_S_TEV = 13.0
 LUMINOSITY_IFB = 139.0
 
@@ -144,7 +188,8 @@ def active_statistical_model(reference):
 
 
 def build_metadata(*, analysis_id, model_name, run_config, standardization, reference,
-                   bounds, mu0, training_date=None, training_duration=None):
+                   bounds, mu0, generation, training_dataset,
+                   training_date=None, training_duration=None):
     """OLLL v0.1 metadata as an ordered {key: string} map.
 
     run_config       YAML text of the run config that produced the weights,
@@ -155,6 +200,9 @@ def build_metadata(*, analysis_id, model_name, run_config, standardization, refe
                      remove_channels, nLL_*_max
     bounds           {"x_min","x_max","y_min","y_max"} over the training block
     mu0              four mu=0 baselines, in OUTPUT_NAMES order
+    generation       normalize_generation(...) of the generation pipeline's record
+    training_dataset {"name", "n_rows", "filtering"}: what we trained on and how
+                     it was derived from the generated scan
     """
     import yaml
 
@@ -211,6 +259,10 @@ def build_metadata(*, analysis_id, model_name, run_config, standardization, refe
     for key in MAX_KEYS:
         mu_hat, nll = reference[key]
         meta[key] = _dumps([float(mu_hat), float(nll)])
+    meta["training_dataset"] = _dumps(training_dataset)
+    for key in GENERATION_KEYS:
+        if key in generation:
+            meta[key] = _dumps(generation[key])
     return meta
 
 
