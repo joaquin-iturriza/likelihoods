@@ -143,7 +143,8 @@ def pick_reference(paths, own, stats, log):
         log.append(f"reference {path}: " + ("MATCH" if not why else "; ".join(why)))
         if not why:
             passing.append((path, ref))
-    assert passing, "no --reference-onnx candidate matches the training data"
+    assert passing, "no --reference-onnx candidate matches the training data:\n  " + \
+        "\n  ".join(l for l in log if l.startswith("reference "))
     gen = {json.dumps(om.normalize_generation(r), sort_keys=True)
            + json.dumps([r.get(k) for k in om.MAX_KEYS]) for _, r in passing}
     assert len(gen) == 1, f"ambiguous: {len(passing)} candidates match with different records"
