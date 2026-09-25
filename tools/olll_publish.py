@@ -117,7 +117,11 @@ def pick_reference(paths, own, stats, log):
     """The one candidate whose record belongs to this model's training data."""
     passing = []
     for path in paths:
-        ref = decode_reference(multimap(onnx.load(path, load_external_data=False)))
+        try:
+            ref = decode_reference(multimap(onnx.load(path, load_external_data=False)))
+        except Exception as exc:  # noqa: BLE001  (a truncated/corrupt candidate)
+            log.append(f"reference {path}: unreadable ({type(exc).__name__})")
+            continue
         why = []
         for k in MODEL_FIELDS:
             if k in own and ref.get(k) != own[k]:
