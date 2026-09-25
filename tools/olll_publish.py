@@ -162,9 +162,19 @@ def pick_reference(paths, own, stats, log):
             passing.append((path, ref))
     assert passing, "no --reference-onnx candidate matches the training data:\n  " + \
         "\n  ".join(l for l in log if l.startswith("reference "))
-    gen = {json.dumps(om.normalize_generation(r), sort_keys=True)
-           + json.dumps([r.get(k) for k in om.MAX_KEYS]) for _, r in passing}
-    assert len(gen) == 1, f"ambiguous: {len(passing)} candidates match with different records"
+    record = lambda r: (json.dumps(om.normalize_generation(r), sort_keys=True)
+                        + json.dumps([r.get(k) for k in om.MAX_KEYS]))
+    if len({record(r) for _, r in passing}) > 1:
+        # One scan grown in steps (100k, 200k, 400k, ...) leaves one file per
+        # step, all consistent with the data; the pipeline's folder_name names
+        # the step, and our dataset keeps that name ('%' -> '_' on disk).
+        named = [(p, r) for p, r in passing
+                 if str(r.get("folder_name", "")).replace("%", "_") == stats["dataset"]]
+        log.append(f"{len(passing)} candidates match; {len(named)} with folder_name == {stats['dataset']}")
+        passing = named
+    assert passing and len({record(r) for _, r in passing}) == 1, \
+        "ambiguous: no single generation record for this dataset:\n  " + \
+        "\n  ".join(l for l in log if l.startswith("reference ") or "candidates match" in l)
     path, ref = passing[0]
     log.append(f"statistical-model and generation metadata from {path}")
     return ref
