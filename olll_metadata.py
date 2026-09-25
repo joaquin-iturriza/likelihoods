@@ -67,7 +67,8 @@ ANALYSES = {
 # record it for that scan (OLLL: the same fields in every published file).
 # Not included: bkgfiles (source.statistical_model.filename says it; the list
 # named every model of the archive) and 'modified' (written by no known code,
-# meaning unknown). patchsets is reduced to the one patchset the scan used.
+# meaning unknown). patchsets is reduced to the patchset the scan used, as its
+# path in the archive.
 GENERATION_KEYS = [
     "analysis", "analysis_altname", "analyses", "patchsets", "merged",
     "fit_bkg", "scan_criterion", "scans", "points", "total_points", "seed",
@@ -271,7 +272,12 @@ def build_metadata(*, analysis_id, model_name, run_config, standardization, refe
     for key in GENERATION_KEYS:
         value = generation.get(key)
         if key == "patchsets" and isinstance(value, list):
-            value = [p for p in value if isinstance(p, list) and len(p) == 2 and p[1]] or value
+            # the patchset(s) the scan used, as paths inside the archive (like
+            # source.statistical_model.filename). The pipeline wrote either plain
+            # names or [name, used] pairs over every patchset of the archive.
+            used = [p[0] for p in value if isinstance(p, list) and len(p) == 2 and p[1]]
+            names = used or [p for p in value if isinstance(p, str)]
+            value = [src.get("archive_dir", "") + n for n in names]
         meta[key] = _dumps(value)
     return meta
 
