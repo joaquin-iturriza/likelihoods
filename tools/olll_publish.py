@@ -113,7 +113,7 @@ def decode_reference(meta):
 MODEL_FIELDS = ["bkg_yields", "obs_yields", "bkg_unc", "remove_channels", "removeCRsVRs"]
 
 
-def pick_reference(paths, own, stats, log):
+def pick_reference(paths, own, stats, log, nll_offset=0.0, check_generation=True):
     """The one candidate whose record belongs to this model's training data."""
     passing = []
     for path in paths:
@@ -128,7 +128,9 @@ def pick_reference(paths, own, stats, log):
                 why.append(f"{k} differs")
         if own.get("channels") is not None and ref.get("channels") != own["channels"]:
             why.append("channels differ")
-        if "lower_limits" not in ref:
+        if not check_generation:
+            pass   # data from another generator: its sampling box is not this one
+        elif "lower_limits" not in ref:
             why.append("no lower_limits")
         else:
             # lower_limits bound the sampled yields BEFORE signal leakage: with
@@ -155,8 +157,8 @@ def pick_reference(paths, own, stats, log):
         for key, mu0, idx in (("nLL_exp_max", stats["mu0"][0], 1), ("nLLA_exp_max", stats["mu0"][2], 1)):
             if key not in ref:
                 why.append(f"no {key}")
-            elif abs(ref[key][idx] - mu0) > MU0_TOL:
-                why.append(f"{key} nLL {ref[key][idx]:.6f} vs data mu0 {mu0:.6f}: other normalisation")
+            elif abs(ref[key][idx] + nll_offset - mu0) > MU0_TOL:
+                why.append(f"{key} nLL {ref[key][idx]:.6f} (+{nll_offset}) vs data mu0 {mu0:.6f}: other normalisation")
         log.append(f"reference {path}: " + ("MATCH" if not why else "; ".join(why)))
         if not why:
             passing.append((path, ref))
@@ -203,7 +205,12 @@ def pick_reference(paths, own, stats, log):
         "ambiguous: no single generation record for this dataset:\n  " + \
         "\n  ".join(l for l in log if ": MATCH" in l or "candidates" in l)
     path, ref = passing[0]
-    log.append(f"statistical-model and generation metadata from {path}")
+    log.append(f"statistical-model {'' if not check_generation else 'and generation '}metadata from {path}")
+    if nll_offset:
+        ref = dict(ref)
+        for key in om.MAX_KEYS:
+            ref[key] = [ref[key][0], ref[key][1] + nll_offset]
+        log.append(f"*_max nLL values shifted by +{nll_offset} to the training data's normalisation (mu_hat unchanged)")
     if "patchsets" in own:
         log.append("input file's own patchsets " + ("agree" if own["patchsets"] == ref.get("patchsets")
                                                    else f"DIFFER: {json.dumps(own['patchsets'])}"))
@@ -244,6 +251,14 @@ def main():
     ap.add_argument("--reference-onnx", action="append", default=[],
                     help="candidate generation-pipeline ONNX to take statistical-model and "
                          "generation metadata from (repeatable; exactly one must match)")
+    ap.add_argument("--nll-offset", type=float, default=0.0,
+                    help="constant by which the training data's nLLs sit above the reference's "
+                         "(a likelihood-normalisation change, e.g. 0.5*ln(2*pi) for newer spey); "
+                         "checked against the mu=0 baselines and added to the reference *_max")
+    ap.add_argument("--generation-not-recorded", action="store_true",
+                    help="the training data was NOT produced by the reference's generation "
+                         "pipeline: take only the statistical-model fields from it, and write "
+                         "every generation key as null")
     ap.add_argument("--drop-generation-key", action="append", default=[],
                     help="a recorded generation setting that does not hold for the training "
                          "dataset (e.g. a filter record for a filter it never went through)")
@@ -263,7 +278,9 @@ def main():
     # -- reference (statistical-model) fields: must be unambiguous as they are
     reference = decode_reference(meta)
     if args.reference_onnx:
-        reference = pick_reference(args.reference_onnx, reference, stats, log)
+        reference = pick_reference(args.reference_onnx, reference, stats, log,
+                                   nll_offset=args.nll_offset,
+                                   check_generation=not args.generation_not_recorded)
     alt = reference.get("analysis_altname")
     assert alt in (None, args.analysis), f"file says {alt}, --analysis says {args.analysis}"
     if "analysis" in reference:
@@ -330,6 +347,10 @@ def main():
         log.append(f"bounds exclude {stats['n_sentinel_train_rows']} failed-fit rows (|nLL|>=1e9)")
 
     generation = om.normalize_generation(reference)
+    if args.generation_not_recorded:
+        keep = ("analysis", "analysis_altname", "analyses")   # the analysis, not the sampling
+        generation = {k: v for k, v in generation.items() if k in keep}
+        log.append("generation keys written as null: the training data is not from the reference's generation pipeline")
     for k in args.drop_generation_key:
         assert k in generation, f"--drop-generation-key {k}: not in the file"
         log.append(f"dropped generation key {k}={json.dumps(generation.pop(k))} (does not hold for the training dataset)")
