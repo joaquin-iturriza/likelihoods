@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # PreToolUse(Bash) hook — the agent never hand-picks a cluster, and never piles a batch on one.
 #
-# Why: ~/work/CLAUDE.md says work is placed by `site pick <project> [--n K]` (free GPUs,
+# Why: ~/work/CLAUDE.md says work is placed by `site pick <project> --jobs N [--groups G --mem M]` (fitting free GPUs, submit caps,
 # queue ahead, my own queued jobs, deployed + verified setup; Jean Zay only when asked).
 # The model still typed `site submit ccin2p3 ...` from habit, or picked once and sent 60
 # sweeps to that one site until its queue was full. CLAUDE.md alone did not stop either.
 #
 # Rule: `site submit auto ...` is always fine (it places each job live). A named
 # submission uses one unit of the quota the last `site pick <project>` left in
-# ~/.local/share/ccorch/placement/<project>.json (`--n K` plans K units across sites;
+# ~/.local/share/ccorch/placement/<project>.json (`--jobs N --groups G` plans G units across sites;
 # default 1), valid for 60 minutes. Counted as submissions: `site submit <site> <project>`
 # and `site run <site> <project> -- ... sweep_manager.py submit|sbatch|condor_submit...`.
 # Raw sbatch / condor_submit from a local session are refused outright.
@@ -27,7 +27,7 @@ except Exception:
 if printf '%s' "$cmd" | grep -qE '(^|[;&|(]|\$\()[[:space:]]*(sbatch|condor_submit|condor_submit_dag)([^[:alnum:]_]|$)'; then
   {
     echo "BLOCKED by placement_guard: raw sbatch/condor_submit. Submit through the site tool so the"
-    echo "run is registered and placed:   site pick <project> [--n K]   then   site submit auto <project> <script> [-- args]"
+    echo "run is registered and placed:   site pick <project> --jobs N [--groups G --mem 8G]   then   site submit auto <project> <script> [-- args]"
   } >&2
   exit 2
 fi
@@ -71,7 +71,7 @@ PY
   {
     echo "BLOCKED by placement_guard: submission to '$site' for '$project' — $verdict."
     echo "Placement is not the agent's call, and a batch is spread over sites by headroom. Run:"
-    echo "    site pick $project --n <number of jobs/trials>     # or: site submit auto $project <script> [-- args]"
+    echo "    site pick $project --jobs <trials> --groups <sweeps> --mem <G>   # or: site submit auto $project <script> [-- args]"
     echo "and submit only what the plan allots to each site (--allow-jeanzay ONLY if the user asked for Jean Zay)."
   } >&2
   exit 2
