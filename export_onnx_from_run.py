@@ -168,7 +168,7 @@ def main():
     ap.add_argument("--analysis", choices=sorted(om.ANALYSES),
                     help="ATLAS analysis ID (default: the record's analysis_altname)")
     ap.add_argument("--label", help="model within the analysis, e.g. EWKinos, used in model_name")
-    ap.add_argument("--filtering", default="none: the generated scan as is",
+    ap.add_argument("--filtering", default="none",
                     help="how the training dataset was derived from the generated scan")
     ap.add_argument("--nll-max", help='JSON {"nLL_exp_max": [mu_hat, nll], ...} for a record without them')
     ap.add_argument("--run-idx", type=int, default=0)
@@ -177,8 +177,8 @@ def main():
 
     device = get_device()
     cfg, exp, run_idx = load_run(args.run_dir, args.run_idx, device)
-    run_config = OmegaConf.to_yaml(cfg, resolve=True)
-    cfgd = yaml.safe_load(run_config)
+    run_config = OmegaConf.to_yaml(cfg)   # as stored by the run, interpolations kept
+    cfgd = OmegaConf.to_container(cfg, resolve=True)
     datasets = list(cfgd["data"]["dataset"])
     assert len(datasets) == 1, f"one dataset per published model, run has {datasets}"
     dataset, data_dir = datasets[0], cfgd["data"]["data_path"]
