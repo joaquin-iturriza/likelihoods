@@ -217,18 +217,6 @@ def pick_reference(paths, own, stats, log, nll_offset=0.0, check_generation=True
     return ref
 
 
-def run_log_times(path):
-    """(YYYY-MM-DD, HH:MM:SS) from a run log's first and 'Finished experiment' lines."""
-    import datetime
-    stamp = lambda line: datetime.datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
-    lines = open(path).read().splitlines()
-    start = stamp(lines[0])
-    done = [l for l in lines if "Finished experiment" in l]
-    assert done, f"{path}: run did not finish"
-    secs = int((stamp(done[-1]) - start).total_seconds())
-    return start.date().isoformat(), f"{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}"
-
-
 def duration_hms(text):
     """'1 hours 1 minutes 8 seconds' -> '01:01:08'."""
     m = re.match(r"^\s*(\d+) hours (\d+) minutes (\d+) seconds\s*$", str(text).strip('"'))
@@ -332,15 +320,14 @@ def main():
             if d_val.strip('"').startswith(date):
                 duration = duration_hms(dur)
     elif args.run_log:
-        date, duration = run_log_times(args.run_log)
+        date, duration = om.run_log_times(args.run_log)
         log.append(f"training_date/duration from {args.run_log}: {date} {duration}")
     elif args.training_date:
         date, duration = args.training_date, args.training_duration
         log.append(f"training_date/duration from the command line: {date} {duration}")
     else:
         log.append("training_date/duration omitted: the chosen run_config has no run timestamp")
-    tag = f"_{args.label}" if args.label else ""
-    model_name = f"{args.analysis}{tag}_MuMLP-{depth}x{width}"
+    model_name = om.model_name(args.analysis, args.label, depth, width)
 
     bounds = {k: stats[k] for k in ("x_min", "x_max", "y_min", "y_max")}
     if stats.get("n_sentinel_train_rows"):

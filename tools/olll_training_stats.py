@@ -42,25 +42,18 @@ def load_ordered(data_dir, dataset):
     return data, None
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", required=True)
-    ap.add_argument("--train-frac", type=float, required=True)
-    ap.add_argument("--subsample", type=int, default=None)
-    ap.add_argument("--data-dir", default=os.environ.get("DATA_DIR", "data"))
-    ap.add_argument("--n-sample", type=int, default=2000)
-    args = ap.parse_args()
-
-    data, presplit = load_ordered(args.data_dir, args.dataset)
+def training_stats(data_dir, dataset, train_frac, subsample=None, n_sample=2000):
+    """The facts above, as a dict (what the OLLL_STATS line carries)."""
+    data, presplit = load_ordered(data_dir, dataset)
     data = data.astype(np.float64)
     n = len(data)
     if presplit is not None:
         n_train = presplit[0]
         test_start = presplit[0] + presplit[1]
     else:
-        n_train = int(n * args.train_frac)
-        if args.subsample is not None:
-            n_train = min(args.subsample, n_train)
+        n_train = int(n * train_frac)
+        if subsample is not None:
+            n_train = min(subsample, n_train)
         test_start = n_train
 
     nll = data[:, -8:]
@@ -77,10 +70,10 @@ def main():
     rng = np.random.default_rng(0)
     test = data[test_start:]
     test = test[~np.any(np.abs(test[:, -8:]) >= SENTINEL, axis=1)]
-    pick = rng.choice(len(test), size=min(args.n_sample, len(test)), replace=False)
+    pick = rng.choice(len(test), size=min(n_sample, len(test)), replace=False)
 
-    out = {
-        "dataset": args.dataset,
+    return {
+        "dataset": dataset,
         "n_rows": n,
         "n_train": n_train,
         "presplit": presplit,
@@ -94,6 +87,17 @@ def main():
         "y_max": delta.max(axis=0).tolist(),
         "sample": test[pick].tolist(),
     }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", required=True)
+    ap.add_argument("--train-frac", type=float, required=True)
+    ap.add_argument("--subsample", type=int, default=None)
+    ap.add_argument("--data-dir", default=os.environ.get("DATA_DIR", "data"))
+    ap.add_argument("--n-sample", type=int, default=2000)
+    args = ap.parse_args()
+    out = training_stats(args.data_dir, args.dataset, args.train_frac, args.subsample, args.n_sample)
     print("OLLL_STATS " + json.dumps(out))
 
 

@@ -31,6 +31,13 @@ export_onnx_from_run.py
 export_combined_onnx.py
 update_metadata.py
 olll_metadata.py
+tools/olll_training_stats.py
+tools/olll_publish.py
+tools/olll_transforms.py
+tools/olll_validate.py
+tools/olll_schema_v0.1_template.yaml
+tools/olll_schema_v0.1_template.json
+data/conv_csv_npy.py
 
 # --- meta ---
 README.md
