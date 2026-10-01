@@ -84,11 +84,13 @@ def main():
         cfg["run_name"] = name
         cfg["run_dir"] = None
         cfg["run_idx"] = 0
-        cfg["base_dir"] = EOS
+        # resolved by OmegaConf when the run starts: the checkout the job runs
+        # from (sites/activate.sh exports PROJECT_DIR), else the current directory
+        cfg["base_dir"] = "${oc.env:PROJECT_DIR,.}"
         cfg["jobid"] = None
         cfg["warm_start_idx"] = None
         cfg.pop("warm_start_dir", None)
-        cfg["data"]["data_path"] = os.path.join(EOS, "data")
+        cfg["data"]["data_path"] = "${oc.env:PROJECT_DIR,.}/data"
         for k in ("is_dyhpo_run", "result_path", "increment_steps"):
             cfg["training"].pop(k, None)
         cfg["training"]["save_intermediate"] = False
