@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-.. module:: preprocessing_nnAdapter
-   :synopsis: Preprocessing and inverse-preprocessing functions for the
-   NNAdapter. Handles feature standardisation and nLL postprocessing,
-   including uncertainty propagation through arbitrary transformation chains.
+.. module:: olll_transforms
+   :synopsis: Batch versions of the feature preprocessing and nLL
+   postprocessing that a published model's metadata describes, for the
+   publishing tools (closure tests in olll_publish.py, split checks in
+   export_release_splits.py). Inference goes through hep_olll.NNAdapter.
 
 """
 

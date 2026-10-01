@@ -46,7 +46,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import olll_metadata as om  # noqa: E402
-from preprocessing_nnAdapter import preprocess_features, undo_preprocess_nLLs  # noqa: E402
+from olll_transforms import preprocess_features, undo_preprocess_nLLs  # noqa: E402
 
 # closure tolerance: median relative error on nLL(mu=1) over held-out rows
 CLOSURE_TOL = 1e-2

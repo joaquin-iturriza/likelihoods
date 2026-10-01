@@ -26,8 +26,7 @@ config
 IntrinsicDimDeep
 
 # --- ONNX deployment (the shippable product) ---
-nnAdapter.py
-preprocessing_nnAdapter.py
+hep_olll
 export_onnx_from_run.py
 export_combined_onnx.py
 update_metadata.py

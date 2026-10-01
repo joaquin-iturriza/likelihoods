@@ -21,6 +21,7 @@ matplotlib
 opt_einsum
 onnx
 onnxruntime
+jsonschema
 torchsummary
 tqdm
 pyyaml

@@ -34,7 +34,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from olll_release import RELEASE, RUNS  # noqa: E402
-from preprocessing_nnAdapter import _log_with_negatives  # noqa: E402
+from olll_transforms import _log_with_negatives  # noqa: E402
 
 NLL_COLS = ["nLL_exp_mu0", "nLL_exp_mu1", "nLL_obs_mu0", "nLL_obs_mu1",
             "nLLA_exp_mu0", "nLLA_exp_mu1", "nLLA_obs_mu0", "nLLA_obs_mu1"]

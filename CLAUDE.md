@@ -7,7 +7,7 @@ likelihood for {expected, observed, Asimov-expected, Asimov-observed}. Trained
 per ATLAS analysis (datasets named by arXiv ID), exported to **ONNX** with the
 pre/post-processing carried as metadata, and benchmarked against the previous
 team's models (Rafal Maselek's `ML_LHClikelihoods`). The deployable inference API
-is `nnAdapter.py` (ships with the paper).
+is `hep_olll.NNAdapter` (`hep_olll/`, a copy of the OLLL repository's adapter).
 
 ---
 
@@ -288,7 +288,7 @@ Selected by `training.loss`: `MSE` (default), `L1`, `LogCosh`, `RelL1`,
 The trained MLP is exported to ONNX; **only the raw network goes into the graph**
 — pre/post-processing (log+standardize on inputs, un-standardize+un-log on
 outputs, and the `μ=0` baseline offsets) is stored as **metadata** and reapplied
-by the consumer (`nnAdapter.py`).
+by the consumer (`hep_olll.NNAdapter`).
 
 - **`export_onnx_from_run.py`** — export a single run to ONNX (inputs
   `["features","global_token"]`, output `["nLLs"]`, opset 17). Rebuilds the
@@ -317,21 +317,21 @@ by the consumer (`nnAdapter.py`).
   `run_config` (full training YAML), `x/y_min/max`, and the inherited `μ=0`
   baselines `nLL_exp_mu0`, `nLL_obs_mu0`, `nLLA_exp_mu0`, `nLLA_obs_mu0` needed to
   turn a predicted delta into an absolute nLL.
-- **`nnAdapter.py`** (`NNAdapter`, by Wolfgang Waltenberger — ships with the
-  paper) is the inference API: `predict(yields)` → preprocess → onnxruntime →
-  postprocess → dict of `nll_{exp,obs}_{0,1}` / `nllA_*`. It reconstructs the
-  absolute nLL as `nll1 = nLL_*_mu0 + delta`. Input tensor is `features`
-  (Joaquin) vs `input_1` (Rafal); output is `nLLs`.
+- **`hep_olll/`** (`NNAdapter`, W. Waltenberger / OLLL collaboration) is the
+  inference API that SModelS uses: `predict(yields, yields_are_signal_yields=True,
+  obs_as_bg=[])` → preprocess → onnxruntime → postprocess → dict of
+  `nll_{exp,obs}_{0,1}` / `nllA_*` (+ `sigma_*`). It reconstructs the absolute nLL
+  as `nll1 = nLL_*_mu0 + delta`; input order is `bkg_yields` minus
+  `remove_channels`; postfit mode (`obs_as_bg="default"`) uses the observed
+  counts as background in the CRs listed in `channels`. It is a **verbatim copy**
+  of https://github.com/OpenML-LHClikelihoods/OLLL (`hep_olll/`, commit
+  `267770c2`): update it from there, never edit it here. It is single-point;
+  the batch transforms our tools need are `tools/olll_transforms.py`. Its
+  validator imports `jsonschema`. It replaced the old repo-local `nnAdapter.py`
+  (Rafal-era `y_min` with 8 absolute entries, `rafal::` detection).
 - **`models_onnx/`** — published models, named by ATLAS analysis ID
   (`SUSY-2019-09_Onshell_Winobino.onnx`, `SUSY-2018-16_Sleptons.onnx`,
   `Ewkinos_combined.onnx`, …). `models_onnx_deprecated/` — superseded versions.
-
-**Gotcha — the `rafal::`/`joaquin` detection is fragile.** `nnAdapter._parseMetaData`
-decides a model is "joaquin" iff some metadata key still carries the `rafal::`
-prefix. But `update_metadata.py` *strips* that prefix on publish — so a published
-`models_onnx/` file loses the joaquin signal even though it still uses the
-`features` input. When in doubt, drive a Joaquin model explicitly rather than
-trusting auto-detection.
 
 ---
 
