@@ -32,6 +32,40 @@ if printf '%s' "$cmd" | grep -qE '(^|[;&|(]|\$\()[[:space:]]*(sbatch|condor_subm
   exit 2
 fi
 
+# Bulk data never crosses this laptop: its downlink is ~100 KB/s, and one stream through the
+# shared ssh master stalls every other command to that site, for every session (2026-10-01:
+# `ssh lxplus tar | ssh jean-zay tar` made each `site` call to lxplus take 8 s). Between sites
+# the verb is `site copy <project> <src> <dst> <paths>` (runs on lxplus or the relay host).
+bulk=$(printf '%s' "$cmd" | python3 -c '
+import sys, shlex, re
+cmd = sys.stdin.read()
+try:
+    lx = shlex.shlex(cmd, posix=True, punctuation_chars=True); lx.whitespace_split = True
+    toks = list(lx)
+except ValueError:
+    sys.exit(0)
+starts = {"|", ";", "&&", "||", "(", "&", "$("}
+heads = [t for i, t in enumerate(toks) if i == 0 or toks[i - 1] in starts]
+mounts = {m for t in toks for m in re.findall(r"/mnt/(eos|afs|ccin2p3)\b", t)}
+remote = [t for t in toks if re.match(r"^[A-Za-z0-9_.@-]+:(/|~|[^/]*$)", t) and not t.startswith("http")]
+if heads.count("ssh") >= 2 and "|" in toks:
+    print("an `ssh ... | ssh ...` pipe streams the data through this laptop")
+elif ("ssh" in heads) and mounts:
+    print("mixing an sshfs mount with ssh streams the data through this laptop")
+elif any(h in ("scp", "rsync") for h in heads) and len(remote) >= 2:
+    print("scp/rsync between two remote ends streams the data through this laptop")
+elif any(h in ("cp", "rsync", "tar", "mv") for h in heads) and len(mounts) >= 2:
+    print("copying between two sshfs mounts streams the data through this laptop")
+' 2>/dev/null)
+if [ -n "$bulk" ]; then
+  {
+    echo "BLOCKED by placement_guard: $bulk."
+    echo "Move data site to site:   site copy <project> <src-site> <dst-site> <path...> [--to DIR] [--overwrite]"
+    echo "(results back here: site fetch <run>; code to a site: site sync)"
+  } >&2
+  exit 2
+fi
+
 subs=$( { printf '%s' "$cmd" | grep -oE '(^|[;&|(]|\$\()[[:space:]]*site[[:space:]]+submit[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+' \
            | sed -E 's/.*site[[:space:]]+submit[[:space:]]+//';
          if printf '%s' "$cmd" | grep -qE 'sweep_manager\.py[[:space:]]+submit|generate_sweep\.py[^;|&]*--submit|condor_submit|sbatch'; then
