@@ -290,10 +290,18 @@ The trained MLP is exported to ONNX; **only the raw network goes into the graph*
 outputs, and the `μ=0` baseline offsets) is stored as **metadata** and reapplied
 by the consumer (`hep_olll.NNAdapter`).
 
-- **`export_onnx_from_run.py`** — export a single run to ONNX (inputs
-  `["features","global_token"]`, output `["nLLs"]`, opset 17). Rebuilds the
-  experiment to recover preprocessing stats, merges metadata, writes
-  `runs/.../models/model_with_metadata.onnx`.
+- **`export_onnx_from_run.py RUN_DIR --generation GEN.json [--label --filtering --nll-max --out]`**
+  — export a single run to ONNX (inputs `["features","global_token"]`, output
+  `["nLLs"]`, opset 17) with OLLL v0.1 metadata, no reference ONNX: network,
+  run_config, preprocessing from the run; bounds and mu=0 baselines from the
+  training data (`tools/olll_training_stats.training_stats`, same split);
+  statistical model, `*_max` and generation settings from the sampling
+  pipeline's JSON (default `<data_path>/<dataset>.json`). Refuses to write unless
+  the file reproduces held-out rows, matches its graph, passes `olll_validate`
+  and loads in `hep_olll`. A null `*_max` in the JSON means the generator's fit
+  failed: re-run it or pass `--nll-max`. Checked against the release: it
+  reproduces the published v0.1 files exactly (only `sig_rel_unc`, new, differs).
+  Takes ~80 s on lxplus: one `site run`, no detaching.
 - **`export_combined_onnx.py`** — stitch **two** partial models into one 4-output
   ONNX (`CombinedNLLModel` scatters each model's outputs into the right global
   indices; adds a `type_token` input). This is how e.g.
@@ -309,8 +317,9 @@ by the consumer (`hep_olll.NNAdapter`).
   file: `tools/olll_training_stats.py` on a site with the data (`site run`), then
   `tools/olll_publish.py IN OUT --analysis ... --stats ...` locally — it picks the
   metadata that reproduces held-out data, checks the architecture against the
-  graph, keeps the graph byte-identical and must pass `olll_validate.py`. The
-  exporters do NOT emit v0.1 yet; run their output through `olll_publish.py`.
+  graph, keeps the graph byte-identical and must pass `olll_validate.py`.
+  `export_combined_onnx.py` does NOT emit v0.1 yet; run its output through
+  `olll_publish.py`.
   `tools/onnx_fingerprint.py` identifies a network by graph hash across sites.
 - **Metadata schema:** `standardization` (JSON: `features_mean/std`,
   `nLLs_mean/std`, optional bounds), `preprocessing` (feature/nLL pipelines),
