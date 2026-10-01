@@ -2,26 +2,59 @@
 Export a trained run to ONNX with OLLL v0.1 metadata.
 
     python export_onnx_from_run.py RUN_DIR [--generation GEN.json] [--analysis ATLAS-SUSY-...]
-                                   [--label NAME] [--filtering TEXT] [--out OUT.onnx]
+                                   [--label NAME] [--filtering TEXT] [--nll-max JSON]
+                                   [--run-idx N] [--out OUT.onnx]
 
-RUN_DIR is runs/<exp>/<run>/ (config_<idx>.yaml, models/model_run<idx>.pt[.gz]).
+Example (a run trained on data/1911.12606-70k-uncertainty.npy, with the
+generator's data/1911.12606-70k-uncertainty.json next to it):
 
-GEN.json is the record the data-generation pipeline (sampling/ in OLLL-Train)
-writes next to every CSV it produces: the statistical model (background-only
-file, channels, observed and background yields, removed channels), the maximum
-likelihoods *_max and the sampling settings. Default: <data_path>/<dataset>.json.
-No previously published model is needed.
+    python export_onnx_from_run.py runs/my_exp/20261001_120000_MuMLP_1234 --label EWKinos
+
+Run it from the repository root, where the run directory and the training data
+are (it rebuilds the experiment and reads the data). No GPU needed.
+
+Inputs
+  RUN_DIR       runs/<exp>/<run>/: config_<idx>.yaml and models/model_run<idx>.pt[.gz]
+                (the lowest config index present if <idx> = --run-idx is missing).
+  --generation  GEN.json, the record the data-generation pipeline (sampling/ in
+                OLLL-Train) writes next to every CSV it produces. Default:
+                <data_path>/<dataset>.json of the run's config. It must hold
+                bkgfiles, channels, obs_yields, bkg_yields, bkg_unc, removeCRsVRs,
+                remove_channels and nLL_{exp,obs}_max, nLLA_{exp,obs}_max as
+                [mu_hat, nLL]. No previously published model is needed.
+  --analysis    ATLAS-SUSY-YYYY-NN. Default: the record's analysis_altname. A new
+                analysis needs one entry (arXiv, INSPIRE, HEPData DOI) in
+                olll_metadata.ANALYSES.
+  --label       the model within the analysis (EWKinos, Sleptons, Offshell, ...);
+                goes into model_name, e.g. ATLAS-SUSY-2018-16_EWKinos_MuMLP-5x512.
+  --filtering   how the training dataset was derived from the generated scan
+                (e.g. "rows with delta nLL_obs > 40 removed"); default "none".
+  --nll-max     '{"nLL_exp_max": [mu_hat, nll], ...}' to supply *_max values the
+                record lacks. A null *_max in the record means the generator's
+                maximum-likelihood fit failed (sampling/likelihood.py,
+                calculate_Lmax); re-running it is better than typing values in.
+  --out         default RUN_DIR/models/model_with_metadata.onnx.
 
 Where each part of the metadata comes from (olll_metadata.py builds it):
   - network, run_config, preprocessing, standardization  <- this run
   - bounds x/y_min/max, mu=0 baselines                   <- the run's training data
+                                                            (same train split as the run)
   - source (paper, HEPData record)                       <- olll_metadata.ANALYSES
   - statistical model, *_max, generation settings        <- GEN.json
+    (incl. sig_rel_unc, the signal uncertainty the generator put in the likelihood)
+
+The inputs are declared as total yields (background + signal) per active bin,
+in the order of bkg_yields minus remove_channels: the training data must be in
+that form. A record that merges several scans can flag more than one patchset
+as used; the model is then the one whose channel map holds exactly the regions
+of bkg_yields, and only its patchset is recorded.
 
 The file is only written if it checks out: decoded from its own metadata it
-must reproduce held-out rows of the training data, the architecture it states
-must be the one in the graph, S. Kraml's validator (tools/olll_validate.py)
-must report no errors, and the OLLL adapter (hep_olll) must load it.
+must reproduce held-out rows of the training data (median relative error on
+nLL(mu=1) below 1%), the architecture it states must be the one in the graph,
+S. Kraml's validator (tools/olll_validate.py) must report no errors, and the
+OLLL adapter (hep_olll) must load it. Otherwise it stops and says why. With
+jsonschema installed, hep_olll's own metadata validator runs too.
 """
 
 import argparse
