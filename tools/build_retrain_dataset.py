@@ -77,10 +77,12 @@ def main():
     te_pts = set(perm[:args.test_points].tolist())
     va_pts = set(perm[args.test_points:args.test_points+args.val_points].tolist())
     if args.split_like:
-        # the points whose rows sit in that dataset's val/test files
+        # the points whose rows sit in that dataset's val/test files. Only rows
+        # with signal identify a point: the zero-signal row is the same for all.
+        signal = np.abs(deltas(new)).max(1) > 0
         def held(suffix):
             rows = {r.tobytes() for r in np.load(os.path.join(data_dir, f"{args.split_like}_{suffix}.npy"))}
-            return {int(point[i]) for i, r in enumerate(new) if r.tobytes() in rows}
+            return {int(point[i]) for i, r in enumerate(new) if signal[i] and r.tobytes() in rows}
         te_pts, va_pts = held("test"), held("val")
         assert not te_pts & va_pts, "a point is in both val and test"
         print(f"split like {args.split_like}: test points {sorted(te_pts)}, val points {sorted(va_pts)}")
