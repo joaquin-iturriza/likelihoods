@@ -1,0 +1,90 @@
+# likelihoods
+
+Neural-network surrogates for **ATLAS SUSY-search likelihoods**. Given a point's
+signal-region **yields**, an MLP predicts the four **negative-log-likelihood (nLL)
+deltas** `[exp, obs, expA, obsA]` — the `μ=1 − μ=0` differences of the profiled
+likelihood for {expected, observed, Asimov-expected, Asimov-observed}. Models are
+trained per ATLAS analysis (datasets named by arXiv ID) and exported to **ONNX**
+with all pre/post-processing carried as metadata, so a consumer only needs the
+`.onnx` file and the `hep_olll` adapter.
+
+## Install
+
+```bash
+python -m venv venv && source venv/bin/activate
+pip install torch hydra-core omegaconf mup torch_geometric \
+            onnx onnxruntime numpy scipy scikit-learn matplotlib
+```
+
+`IntrinsicDimDeep/` (intrinsic-dimension diagnostics used when
+`training.get_ID=true`) is vendored in-tree; no extra setup needed.
+
+## Quickstart
+
+Training is driven by [Hydra](https://hydra.cc). The entry point is `run.py`; the
+default config tree is under `config/` (`config_name="nLLs"`).
+
+```bash
+# train the μP MLP on one dataset
+python run.py model=mup_mlp data.dataset=[1908.08215-400k-fluct20_] training.lr=2e-4
+
+# override any config field from the CLI
+python run.py model=mup_mlp training.loss=HETEROSC training.iterations=100000
+```
+
+A run executes `init_physics → init_data → init_model → train → evaluate → plot`
+and writes checkpoints, predictions, and plots under `runs/<exp_name>/<run_name>/`.
+
+## Data
+
+Datasets are `.npy` files in `data/`, named `<arXivID>-<channel>-<size>-<tag>.npy`.
+Each row is `[ yields… | 8 nLL columns ]`; the 8 nLL columns are baseline-
+subtracted into the **4 delta targets** `[exp, obs, expA, obsA]`. Inputs and
+targets are preprocessed with a signed-log (`sign(x)·log1p(|x|)`) followed by
+standardization.
+
+## Deployment (ONNX)
+
+```bash
+# export a trained run to ONNX with OLLL v0.1 metadata
+python export_onnx_from_run.py runs/<exp>/<run> --generation data/<dataset>.json \
+    [--label EWKinos] [--filtering "how the training data was cut"] [--out model.onnx]
+```
+
+`--generation` is the JSON the sampling pipeline (`sampling/` in OLLL-Train) writes
+next to every CSV it produces; it is the default when it sits next to the dataset
+in `data/`. It provides the statistical model (background-only file, channels,
+yields, removed channels), the maximum likelihoods `nLL_*_max` and the sampling
+settings; everything else comes from the run and its training data. The file is
+only written if, decoded from its own metadata, it reproduces held-out training
+rows, passes the OLLL v0.1 validator (`tools/olll_validate.py`) and loads in
+`hep_olll`. A new ATLAS analysis needs one entry (arXiv, INSPIRE, HEPData DOI) in
+`ANALYSES` in `olll_metadata.py`.
+
+Inference is done through `hep_olll.NNAdapter`, which reapplies the
+metadata-stored preprocessing, runs onnxruntime, and reconstructs the absolute nLL
+as `nll(μ=1) = nLL_mu0 + delta`:
+
+```python
+from hep_olll.nnAdapter import NNAdapter
+adapter = NNAdapter("SUSY-2018-04.onnx")
+adapter.predict({"SR1cut_cuts-0": 3.0, "SR2cut_cuts-0": 1.5})   # signal yields
+```
+
+`hep_olll/` is a copy of the adapter maintained in the OLLL repository
+(https://github.com/OpenML-LHClikelihoods/OLLL, commit `267770c2`); update it from
+there rather than editing it here. Its metadata validator needs `jsonschema`.
+
+## Layout
+
+| Path | What |
+|------|------|
+| `run.py` | Hydra entry point |
+| `experiment.py` | likelihoods experiment: data, loss, eval, plots |
+| `base_experiment.py` | generic train loop, optimizer/scheduler, μP, checkpointing |
+| `models/` | model implementations (μP MLP is the maintained one) |
+| `wrappers.py`, `preprocessing.py`, `losses.py`, `dataset.py` | model wrapper, preprocessing, losses, dataset |
+| `config/` | Hydra configs |
+| `hep_olll/` | inference adapter (copy of the OLLL repository's) |
+| `export_*.py`, `update_metadata.py`, `olll_metadata.py` | ONNX export + metadata |
+| `IntrinsicDimDeep/` | intrinsic-dimension diagnostics |
