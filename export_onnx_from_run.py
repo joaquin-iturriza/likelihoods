@@ -88,9 +88,11 @@ RECORD_KEYS = ["bkgfiles", "channels", "obs_yields", "bkg_yields", "bkg_unc",
 MU0_TOL = 1e-3
 
 
+# Our own checkpoints: they hold the optimizer/scheduler state, with OmegaConf
+# objects inside, which torch>=2.6's default weights_only=True refuses to load.
 def load_model_gz(path, device):
     with gzip.open(path, "rb") as f:
-        return torch.load(f, map_location=device)
+        return torch.load(f, map_location=device, weights_only=False)
 
 
 class ExportAdapter(torch.nn.Module):
@@ -148,7 +150,7 @@ def load_run(run_dir, run_idx, device):
     if os.path.exists(gz):
         checkpoint = load_model_gz(gz, device)
     elif os.path.exists(pt):
-        checkpoint = torch.load(pt, map_location=device)
+        checkpoint = torch.load(pt, map_location=device, weights_only=False)
     else:
         raise FileNotFoundError(f"Missing {gz} and {pt}")
     exp.model.load_state_dict(checkpoint["model"])
