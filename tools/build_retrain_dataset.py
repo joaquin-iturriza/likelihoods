@@ -13,6 +13,12 @@ choice here:
   * rows above `--ceiling` are dropped: the top scan steps run to delta-nLL ~ 1.7e5,
     two decades past anything the old data covers, with very little support.
 
+--old picks the generated scan the new data is added to (default: the
+wino/bino(-) offshell scan). --split-like DATASET holds out exactly the new-data
+mass points that DATASET's val/test hold out, so models built on different old
+scans are tested on the same new points (without it the point split depends on
+the old scan's size through the shared RNG).
+
 Writes <out>.npy (train), <out>_val.npy, <out>_test.npy into data/.
 """
 import argparse
@@ -34,7 +40,10 @@ def deltas(a):
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--old", default=OLD, help="the generated scan the new data is added to")
     p.add_argument("--out", default="2106.01676-winobino-minus-tchiwzoff-retrain")
+    p.add_argument("--split-like", default=None,
+                   help="dataset whose <name>_val/_test fix which new-data points are held out")
     p.add_argument("--ceiling", type=float, default=1e3,
                    help="drop new rows whose max|delta-nLL| exceeds this")
     p.add_argument("--new-frac", type=float, default=0.10,
@@ -48,7 +57,7 @@ def main():
     rng = np.random.default_rng(args.seed)
 
     # ---------------------------------------------------------------- old data
-    old = np.load(os.path.join(data_dir, f"{OLD}.npy"))
+    old = np.load(os.path.join(data_dir, f"{args.old}.npy"))
     old = old[rng.permutation(len(old))]
     n_tr = int(0.70 * len(old))
     n_va = int(0.15 * len(old))
@@ -67,6 +76,14 @@ def main():
     perm = rng.permutation(n_points)
     te_pts = set(perm[:args.test_points].tolist())
     va_pts = set(perm[args.test_points:args.test_points+args.val_points].tolist())
+    if args.split_like:
+        # the points whose rows sit in that dataset's val/test files
+        def held(suffix):
+            rows = {r.tobytes() for r in np.load(os.path.join(data_dir, f"{args.split_like}_{suffix}.npy"))}
+            return {int(point[i]) for i, r in enumerate(new) if r.tobytes() in rows}
+        te_pts, va_pts = held("test"), held("val")
+        assert not te_pts & va_pts, "a point is in both val and test"
+        print(f"split like {args.split_like}: test points {sorted(te_pts)}, val points {sorted(va_pts)}")
     in_te = np.isin(point, list(te_pts))
     in_va = np.isin(point, list(va_pts))
     new_tr = new[keep & ~in_te & ~in_va]
