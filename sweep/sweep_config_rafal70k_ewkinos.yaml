@@ -1,0 +1,88 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+sweep_name: rafal70k_ewkinos_001
+n_trials: 20
+
+# ATLAS-SUSY-2018-16 EWkino SRs on R. Maselek's 1911.12606-70k-uncertainty scan
+# (69060 rows, 44 inputs; generated with a 22% signal uncertainty, sig_rel_unc in
+# its JSON), to compare with his own model on the same data. Same search as
+# boundary201816_ewkinos_001 (dataset, name and step budget changed): exp/expA/obsA
+# are positive (min 4.7/4.7/4.1) and obs crosses zero (86% negative, median -3.8),
+# the same shape that sweep was built for.
+config_name: nLLs_C
+
+# Relative error against the ABSOLUTE nLL at mu=1 (nLL_obs_mu0 + delta), not
+# against the delta. 96.7% of this scan's obs deltas are negative with a median
+# of -5.6 and a dense crossing of zero, so a delta-relative metric would be
+# dominated by near-zero denominators. The baseline is O(250-280), so this
+# denominator is never near 0 and every val row counts.
+observe_metric: val_rel_err_nll_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+# 27624 train rows at batchsize 2048 is ~13.5 batches/epoch, so 100k steps is
+# ~7400 epochs — about the epoch budget of boundary201816_ewkinos_001.
+fidelity_schedule:
+  t_steps: [100000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: ${PROJECT_DIR}/data/
+  data.dataset: '[1911.12606-70k-uncertainty]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: mup_mlp defaults are already gelu / dropout_prob=0 / batchnorm=false;
+  #     width and depth pinned to the deployed EWkino model for comparability ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000      # 100 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+# Activation, loss, dropout and batchnorm are deliberately NOT in the search
+# space — they are fixed above.
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# linear<->log transition scale of the obs asinh transform. The bulk of this
+# channel's obs delta sits at |delta| ~ 1-15 (p10 -10.2, p90 -1.6), so the
+# useful crossover is around there.
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0
