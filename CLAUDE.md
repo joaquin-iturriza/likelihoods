@@ -401,12 +401,22 @@ and **submitted through `site`**; a single hand-picked run is just a 1-trial swe
   before any submission** — *unless I already asked for the submission in the
   message you are acting on*, in which case that instruction is the confirmation
   and asking again just costs a round trip.
-- **Always track submitted jobs.** After any submission, follow them to completion
-  with `site poll` / `site logs <run>` — never fire-and-forget. On lxplus itself,
-  `scripts/wait_for_jobs.sh` (cluster IDs, `--constraint`, `--sweep-dir`, `--mine`)
-  blocks until a set of Condor jobs leaves the queue. When they finish, proceed to
-  analysis (e.g. `sweep/analyze_sweep.py`). Polling is *not* the confirm-first
-  action — only the submission is.
+- **Always track submitted jobs — enforced.** Right after any submission start
+  `python tools/wait_runs.py RUN_ID ...` (or `--pending`) as a **background task**
+  of the session (Bash `run_in_background`): it waits on `site poll` until every
+  run is terminal (a connection error is never "done") and the session is notified
+  when it exits; restart it if it exits while runs remain. It is the only waiter:
+  no ad-hoc wait loops (they have read a failed `condor_q` as an empty queue and
+  a `site` error as a job state), no detached processes (they never notify the
+  session). The Stop hook `job_tracking_guard.sh` blocks ending a turn while any
+  unfinished likelihoods run in the registry (last 14 days) is not covered by a
+  live waiter of the current session; runs a tool submits later (e.g.
+  `tools/sweep_waves.py`) get caught at the next turn end. A terminal state is
+  not success (`site` shows a removed job as COMPLETED): read `site logs <run>`
+  before reporting. On lxplus itself, `scripts/wait_for_jobs.sh` blocks until a
+  set of Condor jobs leaves the queue. When they finish, proceed to analysis (e.g.
+  `sweep/analyze_sweep.py`). Polling is *not* the confirm-first action — only the
+  submission is.
 
 ---
 
@@ -515,4 +525,4 @@ Hooks in `.claude/` back these rules (`settings.json` → `hooks/`, wired via
 Claude/Anthropic attribution in commits, pushes, `gh` calls), `md_guard.sh` (no
 scattered `.md`), `auto_push.sh` (auto-push `trunk`, never `main`),
 `worktree_guard.sh` (worktree nudge on `trunk`), `figure_pair_guard.sh` (png+pdf
-pairing).
+pairing), `job_tracking_guard.sh` (no turn ends with an untracked job).
