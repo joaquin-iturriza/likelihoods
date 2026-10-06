@@ -416,11 +416,25 @@ Multi-fidelity HPO (DyHPO surrogate) over training-step budgets, sharing state v
 a lock file in the sweep dir (on lxplus: AFS, which has the fcntl locks EOS lacks).
 - `sweep/generate_sweep.py` — init a sweep: sample HP candidates, write
   `dyhpo_state.pkl` to the sweep dir, emit one job file pair per trial
-  (`--dry-run` generates without initialising state or submitting; `--extend`
-  adds trials to an existing sweep).
+  (`--dry-run` generates without initialising state; `--extend` adds trials to an
+  existing sweep). It does not submit: see waves below.
 - `sweep/run_trial.py` — per-job entrypoint: lock state → `sampler.suggest()`
   (HP config + fidelity `t_steps`) → warm-start from a lower-fidelity checkpoint
   via `checkpoint_index.py` → `run.py` → lock → `sampler.observe(...)`.
+- **A sweep runs in WAVES, never all trials at once.** Each trial takes its
+  hyperparameters from the shared state when it *starts*, so trials submitted
+  together are all chosen before any result exists: a random search, the Bayesian
+  part wasted. First wave = the random start-up trials (`dyhpo.n_startup`), then
+  small waves (5) each chosen with every earlier result in hand.
+  `tools/sweep_waves.py SWEEP --site S --waves 10,5,5 [--running RUN_ID ...]`
+  does it from the local checkout through `site` (pick on the sweep's site, submit
+  `scripts/sweep_trial.sh -- SWEEP IDX`, wait on `site poll`, check the results
+  arrived in `dyhpo_state.pkl`, next wave). `generate_sweep.py` only initialises
+  the sweep and prints that command; it never submits. Two `site` facts it
+  relies on: a removed job also shows COMPLETED (so results are checked in the
+  state), and on lxplus CERN raises a job's CPUs to keep memory <= 3 GB/core
+  (16 GB with 4 CPUs became 6 CPUs/18 GB and matched no GPU slot): leave memory
+  at the site default unless a run needs more.
 - `sweep/dyhpo_sampler.py`, `sweep/dyhpo/`, `sweep/analyze_sweep.py` — sampler,
   surrogate, analysis.
 - **Naming:** `sweep/` (singular) = the engine source, version-controlled;

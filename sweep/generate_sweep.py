@@ -261,19 +261,14 @@ def main():
         print("\n[dry-run] Done.")
         return
 
-    auto = cfg["cluster"].get("auto_submit", False)
-    if auto or prompt_yes_no("Submit all jobs to HTCondor now?"):
-        submitted = 0
-        for sub_path in sub_paths:
-            try:
-                subprocess.run(["condor_submit", sub_path], check=True)
-                submitted += 1
-            except subprocess.CalledProcessError as e:
-                print(f"  Failed to submit {sub_path}: {e}", file=sys.stderr)
-        print(f"\nSubmitted {submitted}/{n_trials} jobs.")
-    else:
-        print(f"\nSkipping submission. Submit later with:")
-        print(f"  for f in {afs_dir}/subs/trial_*.sub; do condor_submit $f; done")
+    # Never submitted from here: all trials at once would each ask the DyHPO state
+    # for hyperparameters before any result exists (a random search). The trials go
+    # in waves, through the site tool, from the local checkout:
+    n_startup = cfg.get("dyhpo", {}).get("n_startup", 10)
+    rest = n_trials - min(n_startup, n_trials)
+    waves = [min(n_startup, n_trials)] + [5] * (rest // 5) + ([rest % 5] if rest % 5 else [])
+    print("\nNot submitted. Run the trials in waves (first wave = the random start-up trials):")
+    print(f"  python tools/sweep_waves.py {sweep_name} --site <this site> --waves {','.join(map(str, waves))}")
 
 
 if __name__ == "__main__":
