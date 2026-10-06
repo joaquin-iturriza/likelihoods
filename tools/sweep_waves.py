@@ -2,7 +2,7 @@
 Run an initialised DyHPO sweep in waves, so later trials are chosen from earlier results.
 
     python tools/sweep_waves.py SWEEP --site lxplus --waves 10,5,5 [--first-trial 0]
-                                [--running RUN_ID ...] [--mem 8G]
+                                [--running RUN_ID ...] [--mem 8G] [--prio N]
 
 Runs HERE (locally) and reaches the cluster only through `site`. For each wave it
   1. plans with `site pick` (restricted to the sweep's site: the DyHPO state lives
@@ -19,6 +19,10 @@ starts. Submitted all at once, every trial asks before any result exists, which
 makes the sweep a random search. The first wave should be the sweep's random
 start-up trials (dyhpo.n_startup); each later wave is chosen with all earlier
 results in hand.
+
+--prio N (HTCondor sites): set each submitted trial's JobPrio to N with condor_prio.
+JobPrio only orders a user's own jobs, so this puts the sweep ahead of the user's
+other queued jobs and changes nothing else.
 
 --running RUN_ID ... : a wave that is already submitted (its site run IDs); the tool
 waits for it, checks it, then submits the waves after it. Trials are numbered from
@@ -80,7 +84,7 @@ def wait(runs):
         time.sleep(POLL_SECONDS)
 
 
-def submit(site_name, sweep, trials, mem):
+def submit(site_name, sweep, trials, mem, prio=None):
     rc, out = site("pick", "likelihoods", "--jobs", str(len(trials)), "--groups", "1", "--mem", mem,
                    "--only", site_name)
     log("plan: " + " | ".join(l.strip() for l in out.splitlines() if "done in" in l))
@@ -96,6 +100,12 @@ def submit(site_name, sweep, trials, mem):
             sys.exit(f"submitting trial {idx} failed:\n{out}")
         runs.append(m.group(1))
         log(f"trial {idx}: {m.group(1)}")
+        if prio is not None:
+            job = re.search(r"condor job (\d+)", out)
+            if not job:
+                sys.exit(f"--prio needs an HTCondor site; no condor job id in:\n{out}")
+            rc, pout = site("run", "--quote", site_name, "likelihoods", "--", "condor_prio", "-p", str(prio), job.group(1))
+            log(f"trial {idx}: JobPrio {prio}" + ("" if rc == 0 else f" FAILED: {pout.strip()[-200:]}"))
     return runs
 
 
@@ -107,6 +117,7 @@ def main():
     ap.add_argument("--first-trial", type=int, default=0)
     ap.add_argument("--running", nargs="*", default=[], help="site run IDs of an already submitted first wave")
     ap.add_argument("--mem", default="8G", help="memory to plan for (the job's own request is the site default)")
+    ap.add_argument("--prio", type=int, default=None, help="HTCondor JobPrio for each submitted trial")
     a = ap.parse_args()
 
     sizes = [int(x) for x in a.waves.split(",")]
@@ -123,7 +134,7 @@ def main():
             log(f"wave 1 (trials {trials[0]}-{trials[-1]}) already submitted")
         else:
             log(f"wave {w + 1}: submitting trials {trials[0]}-{trials[-1]}")
-            runs = submit(a.site, a.sweep, trials, a.mem)
+            runs = submit(a.site, a.sweep, trials, a.mem, a.prio)
         st = wait(runs)
         n = n_observations(a.site, a.sweep)
         log(f"wave {w + 1} finished {sorted(set(st.values()))}; results in the state: {n0} -> {n}")
