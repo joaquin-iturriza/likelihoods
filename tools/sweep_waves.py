@@ -52,9 +52,12 @@ def log(msg):
 
 
 def n_observations(site_name, sweep):
-    """Number of results in the sweep's DyHPO state, or None if it could not be read."""
+    """Number of trials that reported to the sweep's DyHPO state (results + diverged), or None."""
+    # results = successful observations + configs DyHPO recorded as diverged (a trial
+    # whose loss went non-finite is a valid sweep outcome, not a missing result)
     code = ("import os, pickle; s = pickle.load(open(os.path.join(os.environ['SUBMIT_DIR'], "
-            f"'sweeps', '{sweep}', 'dyhpo_state.pkl'), 'rb')); print('NOBS', len(s['observations']))")
+            f"'sweeps', '{sweep}', 'dyhpo_state.pkl'), 'rb')); "
+            "print('NOBS', len(s['observations']) + len(s.get('diverged_configs') or []))")
     rc, out = site("run", "--quote", site_name, "likelihoods", "--", "python", "-c", code)
     m = re.search(r"^NOBS (\d+)$", out, re.M)
     return int(m.group(1)) if m else None
