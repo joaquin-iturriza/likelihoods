@@ -2,3 +2,10 @@
 # files that legitimately have NO png/pdf counterpart (e.g. a one-off preview or
 # an asset). One per line. '#' starts a comment.
 # Only add here when a figure genuinely should exist in a single format.
+# multi-page PDFs written by a training run (plots_<idx>/); each page also exists as <name>-<page>.png/.pdf
+plots/rafal70k_sweep/training/delta.pdf
+plots/rafal70k_sweep/training/delta_abs.pdf
+plots/rafal70k_sweep/training/delta_prepd.pdf
+plots/rafal70k_sweep/training/histograms.pdf
+plots/rafal70k_sweep/training/loss.pdf
+plots/rafal70k_sweep/training/scatter.pdf
