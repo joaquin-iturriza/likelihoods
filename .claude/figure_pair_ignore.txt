@@ -9,3 +9,9 @@ plots/rafal70k_sweep/training/delta_prepd.pdf
 plots/rafal70k_sweep/training/histograms.pdf
 plots/rafal70k_sweep/training/loss.pdf
 plots/rafal70k_sweep/training/scatter.pdf
+plots/rafal70k_sweep_002/training/delta.pdf
+plots/rafal70k_sweep_002/training/delta_abs.pdf
+plots/rafal70k_sweep_002/training/delta_prepd.pdf
+plots/rafal70k_sweep_002/training/histograms.pdf
+plots/rafal70k_sweep_002/training/loss.pdf
+plots/rafal70k_sweep_002/training/scatter.pdf
