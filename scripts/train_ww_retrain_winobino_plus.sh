@@ -6,7 +6,7 @@
 #SBATCH --error=%x_%j.err
 #SBATCH --gres=gpu:1
 # Wino/bino(+) offshell scan + WW's TChiWZoff points, trained exactly like the
-# wino/bino(-) + WW retrain (config/ww_retrain/higgsino_tchiwzoff.yaml).
+# wino/bino(-) + WW retrain (config/ww_retrain/winobino_plus_tchiwzoff.yaml).
 _CCORCH_ROOT="${CCORCH_PROJECT_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}}"
 source "$_CCORCH_ROOT/sites/activate.sh"
 cd "$PROJECT_DIR"
