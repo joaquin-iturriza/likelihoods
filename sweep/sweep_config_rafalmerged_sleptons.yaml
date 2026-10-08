@@ -1,0 +1,92 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+sweep_name: rafalmerged_sleptons_001
+n_trials: 20
+
+# ATLAS-SUSY-2018-16 slepton SRs on R. Maselek's merged scan with a 22% signal
+# uncertainty (1911.12606-sleptons-merged-big-tuned), in his cleaned version
+# (-corr-nll300delta150, 275706 rows). Unlike the 200k scan behind the published
+# slepton model it reaches zero signal (9.6% of rows below delta_exp 1.92; chains
+# seeded at mu=0 and on the validation grid), which the expected limits in
+# SModelS need. No search had been run on it: Maselek reused hp_0180 of
+# 1911_ewkinos_014 (an EWkino search on other data). Set up like
+# rafalmerged_ewkinos_001; the asinh range is that of boundary201816_sleptons_001
+# (the slepton obs delta is much tighter than the EWkino one). Network 64x5.
+config_name: nLLs_C
+
+# Relative error against the ABSOLUTE nLL at mu=1 (nLL_obs_mu0 + delta), not
+# against the delta. This scan's obs delta crosses zero (min -3.6), so a
+# delta-relative metric would be dominated by near-zero denominators. The
+# baseline is nLL_obs_mu0 = 205.2, so this denominator is never near 0 and every
+# val row counts.
+observe_metric: val_rel_err_nll_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+# 110282 train rows at batchsize 2048 is ~54 batches/epoch, so 200k steps is
+# ~3700 epochs.
+fidelity_schedule:
+  t_steps: [200000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: ${PROJECT_DIR}/data/
+  data.dataset: '[1911.12606-sleptons-merged-big-tuned-corr-nll300delta150]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: mup_mlp defaults are already gelu / dropout_prob=0 / batchnorm=false;
+  #     width and depth pinned to the deployed EWkino model for comparability ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000      # 100 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'false'      # keep the final model, see header
+  training.load_best_previous: 'false'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+# Activation, loss, dropout and batchnorm are deliberately NOT in the search
+# space — they are fixed above.
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 5.0e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# linear<->log transition scale of the obs asinh transform, the range of
+# boundary201816_sleptons_001: this channel's obs delta is tight (min -3.6,
+# max 23.9), so the useful crossover sits lower than for the EWkinos.
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 2.0e-01
+  high: 1.0e+01
