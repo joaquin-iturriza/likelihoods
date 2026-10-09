@@ -937,7 +937,7 @@ class BaseExperiment:
 
     def _validate(self, step):
         start_time_validate = time.time()
-        losses = []
+        losses, sizes = [], []
         metrics = self._init_metrics()
 
         self.model.eval()
@@ -953,7 +953,8 @@ class BaseExperiment:
                     loss = self._batch_loss(data)
 
                 losses.append(loss.cpu().item())
-        val_loss = np.mean(losses)
+                sizes.append(len(data[0][1]))
+        val_loss = np.average(losses, weights=sizes)   # the last batch can be smaller
         #LOGGER.info(
         #    f"Validation loss after {step} iterations = {val_loss:.4f} "
         #    f"(mean over {len(losses)} batches)"

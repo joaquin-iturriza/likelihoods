@@ -404,13 +404,15 @@ class nLLsExperiment(BaseExperiment):
             drop_last=True,
         )
 
+        # val/test keep every row: a fixed split puts its held-out points at the end
+        # of the file, and drop_last cut up to batchsize-1 of them from every metric
         self.test_loader = torch.utils.data.DataLoader(
             dataset=nLLsDataset(
                 test_sets["features"], test_sets["nLLs"], dtype=self.dtype
             ),
             batch_size=self.cfg.evaluation.batchsize,
             shuffle=False,
-            drop_last=True,
+            drop_last=False,
         )
 
         self.val_loader = torch.utils.data.DataLoader(
@@ -419,7 +421,7 @@ class nLLsExperiment(BaseExperiment):
             ),
             batch_size=self.cfg.evaluation.batchsize,
             shuffle=False,
-            drop_last=True,
+            drop_last=False,
         )
 
         n_train = sum(len(x) for x in train_sets["features"])
@@ -625,15 +627,15 @@ class nLLsExperiment(BaseExperiment):
         print('nLLs_truth_prepd length:',len(nLLs_truth_prepd[0]))
         #print('truth shape:',nLLs_truth_prepd.shape)
         nLLs_pred_prepd = [
-            np.array(individual) for individual in nLLs_pred_prepd
+            np.concatenate(individual, axis=0) for individual in nLLs_pred_prepd
         ]
         nLLs_truth_prepd = [
-            np.array(individual) for individual in nLLs_truth_prepd
+            np.concatenate(individual, axis=0) for individual in nLLs_truth_prepd
         ]
         print('pred shape:',nLLs_pred_prepd[0].shape)
         print('truth shape:',nLLs_truth_prepd[0].shape)
         if self.cfg.training.loss in ("HETEROSC", "MAE_TO_HETEROSC"):
-            nLLs_sigmas = [np.array(individual) for individual in nLLs_sigmas]
+            nLLs_sigmas = [np.concatenate(individual, axis=0) for individual in nLLs_sigmas]
             print('sigmas shape:',nLLs_sigmas[0].shape)
             #print('sigmas:',nLLs_sigmas[0])
             
