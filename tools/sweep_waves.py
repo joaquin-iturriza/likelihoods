@@ -40,6 +40,8 @@ import time
 
 TERMINAL = {"COMPLETED", "FAILED", "REMOVED", "CANCELLED", "HELD", "TIMEOUT", "OUT_OF_MEMORY", "NODE_FAIL"}
 POLL_SECONDS = 300
+# the scheduler refusing a job because the user already has the maximum queued
+SUBMIT_CAP = r"QOSMaxSubmitJobPerUserLimit|MaxSubmitJobs|maximum number of jobs"
 
 
 def site(*args, timeout=600):
@@ -97,8 +99,16 @@ def submit(site_name, sweep, trials, mem, prio=None):
                 "--note", f"{sweep} trial {idx}"]
         if k:
             args.append("--no-sync")
-        rc, out = site(*args, "--", sweep, str(idx))
-        m = re.search(r"run (\S+)\s+\(", out)
+        while True:
+            rc, out = site(*args, "--", sweep, str(idx))
+            m = re.search(r"run (\S+)\s+\(", out)
+            if (rc or not m) and re.search(SUBMIT_CAP, out):
+                log(f"trial {idx}: at {site_name}'s per-user submit cap; retrying in {POLL_SECONDS // 60} min")
+                time.sleep(POLL_SECONDS)
+                if "--no-sync" not in args:
+                    args.append("--no-sync")       # synced on the first attempt
+                continue
+            break
         if rc or not m:
             sys.exit(f"submitting trial {idx} failed:\n{out}")
         runs.append(m.group(1))
