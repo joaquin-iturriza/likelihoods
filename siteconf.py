@@ -110,8 +110,10 @@ def resolve(cfg):
         # CERN: submission files + locks on AFS, bulk results on EOS
         paths["afs_sweep_dir"] = paths.pop("sweep_dir", None) or SWEEP_DIR
         paths["eos_sweep_dir"] = RESULTS_DIR
-    elif not sd:
-        paths["sweep_dir"] = SWEEP_DIR
+    else:
+        # SLURM sites: one directory holds submission files, state and results
+        paths.setdefault("sweep_dir", SWEEP_DIR)
+        paths["afs_sweep_dir"] = paths["eos_sweep_dir"] = paths["sweep_dir"]
     if not paths.get("setup_commands"):
         paths["setup_commands"] = list(SETUP_COMMANDS)
     paths["python_env"] = "%s/sites/activate.sh" % _S["project_dir"]   # `source`-able
