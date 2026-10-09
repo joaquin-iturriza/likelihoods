@@ -94,7 +94,7 @@ class DyHPOAlgorithm:
         else:
             self.surrogate_config = surrogate_config
 
-        self.best_value_observed = np.NINF
+        self.best_value_observed = -np.inf
         self.diverged_configs: set = set()
         self.info_dict: Dict = {}
         self.suggest_time_duration = 0
@@ -286,7 +286,7 @@ class DyHPOAlgorithm:
         raise NotImplementedError(acq_fc)
 
     def _find_suggested_config(self, mean_predictions, mean_stds, budgets) -> int:
-        highest = np.NINF
+        highest = -np.inf
         best_index = -1
         for i, (mean, std) in enumerate(zip(mean_predictions, mean_stds)):
             budget = int(budgets[i])
@@ -426,7 +426,7 @@ class DyHPOAlgorithmND:
 
         self.model = None  # created on first observe() after startup
 
-        self.best_value_observed    = np.NINF
+        self.best_value_observed    = -np.inf
         self.budget_spent           = 0
         self.no_improvement_patience = 0
         self.no_improvement_threshold = 20
@@ -532,7 +532,7 @@ class DyHPOAlgorithmND:
 
     def _find_best_ei(self, means, stds) -> int:
         """Return index of candidate with highest EI vs global best."""
-        best_i, best_ei = -1, np.NINF
+        best_i, best_ei = -1, -np.inf
         ymax = self.best_value_observed
         for i, (m, s) in enumerate(zip(means, stds)):
             ei = self._acq(ymax, m, s)
