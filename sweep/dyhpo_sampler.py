@@ -18,7 +18,6 @@ Typical usage in run_trial.py:
         sampler.observe(hp_idx, t_steps, val_loss)
 """
 
-import fcntl
 import itertools
 import math
 import os
@@ -27,6 +26,8 @@ from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+from sweep.dirlock import dir_lock
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +334,7 @@ class DyHPOSampler:
         return records
 
     # ------------------------------------------------------------------
-    # Persistence  (pickle on AFS with fcntl locking)
+    # Persistence  (pickle on AFS under sweep/dirlock.py)
     # ------------------------------------------------------------------
 
     def save(self, path: str):
@@ -468,15 +469,10 @@ class DyHPOSampler:
         with DyHPOSampler.locked(state_path, output_path) as sampler:
             hp_idx, hp_params, t_steps = sampler.suggest()
         """
-        lock_path = state_path + '.lock'
-        with open(lock_path, 'w') as lf:
-            fcntl.flock(lf, fcntl.LOCK_EX)
-            try:
-                sampler = DyHPOSampler.load(state_path, output_path)
-                yield sampler
-                sampler.save(state_path)
-            finally:
-                fcntl.flock(lf, fcntl.LOCK_UN)
+        with dir_lock(state_path):
+            sampler = DyHPOSampler.load(state_path, output_path)
+            yield sampler
+            sampler.save(state_path)
 
 
 # ---------------------------------------------------------------------------

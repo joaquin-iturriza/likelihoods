@@ -7,16 +7,17 @@ including the run_dir, run_idx, steps completed, and t_steps fidelity level.
 
 The index is a JSON file on AFS (shared between HTCondor jobs). Use
 CheckpointIndex as a context manager for atomic read-modify-write with
-fcntl.LOCK_EX advisory locking:
+an exclusive lock (sweep/dirlock.py):
 
     with CheckpointIndex(path) as idx:
         entry = idx.lookup(hp_idx)
         idx.register(hp_idx, run_dir, run_idx, steps_done, t_steps)
 """
 
-import fcntl
 import json
 import os
+
+from sweep.dirlock import dir_lock
 
 
 class CheckpointIndex:
@@ -32,23 +33,24 @@ class CheckpointIndex:
     def __init__(self, index_path: str):
         self.index_path = index_path
         self._data: dict | None = None
-        self._fh = None
+        self._lock = None
 
     # ------------------------------------------------------------------
     # Context manager — holds an exclusive lock for the duration
     # ------------------------------------------------------------------
 
     def __enter__(self):
-        self._fh = open(self.index_path + '.lock', 'w')
-        fcntl.flock(self._fh, fcntl.LOCK_EX)
+        self._lock = dir_lock(self.index_path)
+        self._lock.__enter__()
         self._load()
         return self
 
     def __exit__(self, *_):
-        self._save()
-        fcntl.flock(self._fh, fcntl.LOCK_UN)
-        self._fh.close()
-        self._fh = None
+        try:
+            self._save()
+        finally:
+            self._lock.__exit__(None, None, None)
+            self._lock = None
         self._data = None
 
     # ------------------------------------------------------------------
