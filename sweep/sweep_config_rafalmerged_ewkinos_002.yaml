@@ -1,0 +1,97 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+sweep_name: rafalmerged_ewkinos_002
+n_trials: 30
+
+# rafalmerged_ewkinos_001 rerun as a fresh sweep after the DyHPO sampler fix (46c2e69,
+# 0db7a4f: its post-startup picks came from an untrained surrogate). Changes from
+# _001, each asked for: the lowest-val-loss checkpoint is kept (es_load_best_model
+# true, objective measured on it), lr capped at 2.5e-2 (every _001 trial above
+# 2.6e-2 diverged), 30 trials (10 startup + 4 waves of 5).
+#
+# ATLAS-SUSY-2018-16 EWkino SRs on R. Maselek's merged scan with a 22% signal
+# uncertainty (1911.12606-EWKinos-merged-big-tuned, 756794 rows, which contains
+# all of 1911.12606-70k-uncertainty), in his cleaned version (-corr-nll350delta100:
+# rows with nLL > 350 or a delta > 100 removed, 737916 rows left).
+# His 8-model comparison of 2026-10-08 used one fixed recipe for every cell, the
+# best trial (hp_0180) of 1911_ewkinos_014, a search on the old no-uncertainty 1M
+# scan; no search was run on this data. This is that search, set up exactly like
+# rafal70k_ewkinos_002 (same space, objective, final model kept), with only the
+# dataset and the step budget changed. The network stays at 64x5.
+config_name: nLLs_C
+
+# Relative error against the ABSOLUTE nLL at mu=1 (nLL_obs_mu0 + delta), not
+# against the delta. This scan's obs delta crosses zero densely (min -22.9,
+# max 50), so a delta-relative metric would be
+# dominated by near-zero denominators. The baseline is O(250-280), so this
+# denominator is never near 0 and every val row counts.
+observe_metric: val_rel_err_nll_obs_med
+
+dyhpo:
+  n_candidates: 300
+  seed: 42
+  n_startup: 10
+  total_budget: 10000
+
+# 295166 train rows at batchsize 2048 is ~144 batches/epoch, so 200k steps is
+# ~1390 epochs, and the same step count as Maselek's models on this data.
+fidelity_schedule:
+  t_steps: [200000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: ${PROJECT_DIR}/data/
+  data.dataset: '[1911.12606-EWKinos-merged-big-tuned-corr-nll350delta100]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: mup_mlp defaults are already gelu / dropout_prob=0 / batchnorm=false;
+  #     width and depth pinned to the deployed EWkino model for comparability ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (swept)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000      # 100 validations per trial
+  training.es_patience: 100000000            # DyHPO controls stopping via fidelity
+  training.es_load_best_model: 'true'       # keep the lowest-val-loss checkpoint
+  training.load_best_previous: 'false'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+# Activation, loss, dropout and batchnorm are deliberately NOT in the search
+# space — they are fixed above.
+search_space:
+- name: training.lr
+  type: float_log
+  low: 1.0e-04
+  high: 2.5e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+# linear<->log transition scale of the obs asinh transform, the range of
+# rafal70k_ewkinos_002 (whose scan is a 9% subset of this one).
+- name: data.nLL_trafos.asinh_scale
+  type: float_log
+  low: 1.0
+  high: 20.0
