@@ -480,6 +480,19 @@ class DyHPOAlgorithmND:
                 labels.append(self._scale(neg_vl))
                 budgets.append(list(self._combo_to_normalized(combo)))
                 contexts.append(self._build_context(hp_idx, exclude_combo=combo))
+        # A diverged trial enters as the worst value seen so far, at the cheapest
+        # fidelity. Excluding it from the candidates alone taught the surrogate
+        # nothing about the region, so it kept proposing its neighbours (lr above the
+        # divergence threshold) and a wave lost most of its trials to NaN.
+        if self.observations:
+            worst = self._scale(min(v for obs in self.observations.values() for v in obs.values()))
+            for hp_idx in sorted(self.diverged_configs):
+                if hp_idx in self.observations:
+                    continue
+                examples.append(self.hp_candidates[hp_idx])
+                labels.append(worst)
+                budgets.append(list(self._combo_to_normalized(self.all_combos[0])))
+                contexts.append([])
         return examples, labels, budgets, contexts
 
     def _generate_candidate_configurations(self, exclude=None) -> Tuple[List, List, List, List, List]:
