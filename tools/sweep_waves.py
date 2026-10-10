@@ -66,13 +66,15 @@ def n_observations(site_name, sweep):
 
 
 def states(runs):
-    site("poll", *runs)
-    rc, out = site("runs", "--project", "likelihoods")
+    # read the states from the poll itself ("<run> OLD -> NEW"): `site runs` lists only
+    # the most recent runs, so a wave's runs fell off it once other trials were
+    # submitted and stayed "?" forever
+    rc, out = site("poll", *runs)
     st = {}
     for line in out.splitlines():
-        parts = line.split()
-        if parts and parts[0] in runs:
-            st[parts[0]] = parts[3]
+        m = re.match(r"\s*(\S+)\s+\S+\s+->\s+(\S+)", line)
+        if m and m.group(1) in runs:
+            st[m.group(1)] = m.group(2)
     return st
 
 
