@@ -610,6 +610,18 @@ class BaseExperiment:
                 )
 
     def train(self):
+        # The model a run keeps is the checkpoint with the lowest validation value of the
+        # loss it trains on. Keeping the final weights instead is the user's decision only,
+        # recorded in the config as training.keep_final_model_approved_by_user: true.
+        if not self.cfg.training.es_load_best_model and not self.cfg.training.get(
+            "keep_final_model_approved_by_user", False
+        ):
+            raise ValueError(
+                "training.es_load_best_model=false keeps the final weights instead of the "
+                "lowest-val-loss checkpoint; that needs the user's explicit approval "
+                "(training.keep_final_model_approved_by_user=true)"
+            )
+
         # performance metrics
         self.train_lr, self.train_loss, self.val_loss, self.train_grad_norm = (
             [],

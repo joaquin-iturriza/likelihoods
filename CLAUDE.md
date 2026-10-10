@@ -114,6 +114,22 @@ Non-negotiable:
    in the message you are acting on. Show exactly what would be pushed and
    wait. "I guess we could…" is not a go.
 
+7. **Never change the method without asking: do exactly what was asked.**
+   Which checkpoint a run keeps, the loss, the selection or ranking metric,
+   the split, the data filtering, the preprocessing, the step budget, the
+   architecture: changing any of these is my decision, asked as a question
+   and answered before anything runs, never a line in a plan. "Rerun X" means
+   X as it was, with only the change I named.
+   - **The kept model is the checkpoint with the lowest validation value of
+     the loss the run trains on** (`es_load_best_model: true`). With
+     `HETEROSC` that is the heteroscedastic NLL, σ included: a checkpoint
+     with better MSE or median error but worse NLL is the worse model. If
+     the val loss misbehaves (rises early, blows up), that is a bug or a data
+     problem to report and investigate, not a reason to keep other weights.
+     `base_experiment.train` refuses `es_load_best_model: false` unless the
+     config carries `training.keep_final_model_approved_by_user: true`,
+     which is set only when I asked for it.
+
 ---
 
 ## Filesystem split (EOS + AFS)
