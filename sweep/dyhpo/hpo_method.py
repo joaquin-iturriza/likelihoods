@@ -451,10 +451,25 @@ class DyHPOAlgorithmND:
         """
         obs = self.observations.get(hp_idx, {})
         return [
-            (self._combo_to_normalized(c), -neg_vl)
+            (self._combo_to_normalized(c), self._scale(neg_vl))
             for c, neg_vl in obs.items()
             if c != exclude_combo
         ]
+
+    def _label_stats(self) -> Tuple[float, float]:
+        """Mean and std of every observed (negated) objective value."""
+        vals = np.array([v for obs in self.observations.values() for v in obs.values()], dtype=float)
+        mu = float(vals.mean()) if len(vals) else 0.0
+        sd = float(vals.std()) if len(vals) > 1 else 0.0
+        return mu, (sd if sd > 0 else 1.0)
+
+    def _scale(self, neg_vl: float) -> float:
+        """Standardise an objective value. The objectives here are O(1e-3) with spreads
+        of 1e-4..1e-3, below the GP likelihood's noise floor (variance >= 1e-4), so on
+        the raw scale the GP sees nothing but noise and EI degenerates to picking the
+        candidates furthest from every observation."""
+        mu, sd = self._label_stats()
+        return (neg_vl - mu) / sd
 
     def _history_configurations(self) -> Tuple[List, List, List, List]:
         """Training data for surrogate — one row per observed (hp_idx, combo)."""
@@ -462,7 +477,7 @@ class DyHPOAlgorithmND:
         for hp_idx, obs_dict in self.observations.items():
             for combo, neg_vl in obs_dict.items():
                 examples.append(self.hp_candidates[hp_idx])
-                labels.append(neg_vl)
+                labels.append(self._scale(neg_vl))
                 budgets.append(list(self._combo_to_normalized(combo)))
                 contexts.append(self._build_context(hp_idx, exclude_combo=combo))
         return examples, labels, budgets, contexts
@@ -533,7 +548,7 @@ class DyHPOAlgorithmND:
     def _find_best_ei(self, means, stds) -> int:
         """Return index of candidate with highest EI vs global best."""
         best_i, best_ei = -1, -np.inf
-        ymax = self.best_value_observed
+        ymax = self._scale(self.best_value_observed)   # same units as the predictions
         for i, (m, s) in enumerate(zip(means, stds)):
             ei = self._acq(ymax, m, s)
             if ei > best_ei:
@@ -570,6 +585,18 @@ class DyHPOAlgorithmND:
                 break
 
         if idx is None:
+            # Fit the surrogate on every observation so far, here, in the process that
+            # uses it. Each trial is its own process and the sampler state holds no
+            # surrogate weights, so a surrogate trained in observe() was lost and every
+            # post-startup suggestion came from an untrained network.
+            if sum(len(o) for o in self.observations.values()) >= 2:
+                torch.manual_seed(self.seed + self.budget_spent)
+                np.random.seed(self.seed + self.budget_spent)
+                self.model = DyHPO(
+                    self.surrogate_config, self.dev,
+                    self.dataset_name, self.output_path, self.seed,
+                )
+                self._train_surrogate()
             if self.model is not None:
                 means, stds, hp_indices, combos = self._predict(exclude=exclude)
                 if hp_indices:
@@ -622,15 +649,7 @@ class DyHPOAlgorithmND:
         else:
             self.no_improvement_patience += 1
 
-        if self.initial_random_index >= len(self.init_conf_indices):
-            if self.model is None:
-                self.model = DyHPO(
-                    self.surrogate_config, self.dev,
-                    self.dataset_name, self.output_path, self.seed,
-                )
-            if self.no_improvement_patience == self.no_improvement_threshold:
-                self.model.restart = True
-            self._train_surrogate()
+        # The surrogate is fitted in suggest(), on all observations, when it is needed.
 
 
 # Backward-compat alias

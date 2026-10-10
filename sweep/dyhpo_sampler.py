@@ -438,17 +438,10 @@ class DyHPOSampler:
         # Guard: only create model if there are actual observations — a corrupted state
         # (suggest called past startup but all training runs failed so observe never ran)
         # would cause encode_contexts([]) → empty TensorList crash.
+        # No surrogate is restored: none was ever saved (the checkpoint file this
+        # used to load did not exist, so it silently ran an untrained one).
+        # DyHPOAlgorithmND.suggest() fits a fresh one on the observations.
         alg.model = None
-        if alg.initial_random_index >= len(alg.init_conf_indices) and alg.observations:
-            from sweep.dyhpo.surrogate_models.dyhpo import DyHPO
-            alg.model = DyHPO(
-                surrogate_config, alg.dev,
-                'amplitude_sweep', output_path, obj.seed,
-            )
-            try:
-                alg.model.load_checkpoint()
-            except (FileNotFoundError, KeyError):
-                pass
 
         obj.algorithm = alg
         return obj
