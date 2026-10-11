@@ -153,8 +153,10 @@ def main():
         st = wait(runs)
         n = n_observations(a.site, a.sweep)
         log(f"wave {w + 1} finished {sorted(set(st.values()))}; results in the state: {n0} -> {n}")
-        if n is None or n - n0 < size:
-            sys.exit(f"wave {w + 1}: only {None if n is None else n - n0} of {size} trials reported a result; "
+        # trials 0..idx+size-1 have all run by now, so the state must hold that many results
+        # (comparing with n0 miscounts a resumed wave whose finished trials had already reported)
+        if n is None or n < idx + size:
+            sys.exit(f"wave {w + 1}: the state holds {n} results, trials 0-{idx + size - 1} should have reported; "
                      "read their logs (site logs <run>) before going on")
         n0, idx = n, idx + size
     log(f"all waves done: {n0} results")
