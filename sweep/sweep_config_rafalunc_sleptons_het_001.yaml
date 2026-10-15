@@ -1,0 +1,103 @@
+cluster:
+  auto_submit: false
+  gpus_minimum_memory: 4000
+  job_flavour: tomorrow
+  request_gpus: 1
+  requirements: '!regexp("MIG", TARGET.GPUs_DeviceName)'
+  priority: 10
+  request_memory: 16000
+
+sweep_name: rafalunc_sleptons_het_001
+n_trials: 30
+
+# ATLAS-SUSY-2018-16 slepton SRs on R. Maselek's final merged scan with a 22% signal uncertainty
+# (1911.12606-sleptons-merged-big-tuned2-corr-nll300delta150, his cleaned version, 772551 rows), without the 497 rows tools/label_check.py
+# flags (delta more than 1 from the median of its 10 nearest neighbours in yield space: mu=1 fits
+# that did not converge; scripts/stage_rafal_unc.sh writes the -lc file).
+# His models on this scan (256x6) reused hp_0180 of 1911_ewkinos_014 without a search.
+# This is the search, set up like the 1911 sweeps: 64x5, the standard transforms
+# (log_w_negatives + standardization for yields and nLLs) with the other options searched as in
+# 1911_ewkinos_001-009 / 1911_sleptons_001-011, the plain heteroscedastic loss (the loss of the other published models),
+# the obs loss weight searched (R. Maselek tried x4-x10 by hand), lowest-val-loss checkpoint kept.
+# Changes from those sweeps, each asked for: plain GP sampler, 2000 candidates, the obs weight
+# searched; the ranking metric does not depend on the loss weights or the transforms.
+
+# Median relative error of all four outputs against the ABSOLUTE nLL at mu=1 (baseline + delta),
+# in physical space, unweighted: comparable across obs weights and transforms, which the
+# weighted training loss is not.
+observe_metric: val_rel_err_nll_med
+
+dyhpo:
+  surrogate: gp
+  n_candidates: 2000
+  seed: 64
+  n_startup: 10
+  total_budget: 10000
+
+fidelity_schedule:
+  t_steps: [200000]
+
+fixed_params:
+  # --- data ---
+  data.data_path: ${PROJECT_DIR}/data/
+  data.dataset: '[1911.12606-sleptons-merged-big-tuned2-corr-nll300delta150-lc]'
+  data.subsample: null
+  data.incl_fvs: 'true'
+  data.include_permsym: 'true'
+  # --- model: mup_mlp defaults are gelu / dropout_prob=0 / batchnorm=false ---
+  model: mup_mlp
+  model.net.hidden_channels: 64
+  model.net.hidden_layers: 5
+  # --- training ---
+  training.loss: HETEROSC
+  training.batchsize: 2048
+  training.optimizer: AdamW
+  training.scheduler: CosineAnnealingLR
+  training.cosanneal_warmup_steps: 0         # overridden by cosanneal_warmup_frac (searched)
+  training.cosanneal_eta_min: 0
+  training.regularization: L2
+  training.validate_every_n_steps: 1000
+  training.es_patience: 100000000            # the fidelity schedule controls stopping
+  training.es_load_best_model: 'true'        # keep the lowest-val-loss checkpoint
+  training.load_best_previous: 'false'
+  training.get_ID: 'false'
+  training.save_preds_intermediate: 'false'
+  training.save_intermediate: 'false'
+  plot: 'true'
+
+search_space:
+# lr range covering every earlier winner on these channels (2e-5 .. 1.1e-2), capped at 2.5e-2
+# (every rafalmerged trial above 2.6e-2 diverged)
+- name: training.lr
+  type: float_log
+  low: 1.0e-05
+  high: 2.5e-02
+- name: training.regularization_lambda
+  type: float_log
+  low: 1.0e-11
+  high: 1.0e-02
+- name: training.cosanneal_warmup_frac
+  type: float_uniform
+  low: 0.0
+  high: 0.15
+- name: data.trafos.fvs_standardized
+  type: categorical
+  choices:
+  - '["log_w_negatives","standardization"]'
+  - '["standardization"]'
+- name: data.nLL_trafos
+  type: categorical
+  choices:
+  - '["log_w_negatives","standardization"]'
+  - '["standardization"]'
+# loss weight of the observed output (index 1), in increasing order (label-encoded as 0..6)
+- name: training.output_weights
+  type: categorical
+  choices:
+  - '[1,1,1,1]'
+  - '[1,2,1,1]'
+  - '[1,4,1,1]'
+  - '[1,7,1,1]'
+  - '[1,10,1,1]'
+  - '[1,15,1,1]'
+  - '[1,20,1,1]'

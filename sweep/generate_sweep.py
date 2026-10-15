@@ -68,10 +68,11 @@ def init_sampler(cfg, afs_dir, eos_dir):
         output_path    = os.path.join(eos_dir, "dyhpo_surrogate"),
         n_startup      = dyhpo_cfg.get("n_startup", 10),
         total_budget   = dyhpo_cfg.get("total_budget", 10_000),
+        surrogate      = dyhpo_cfg.get("surrogate", "dyhpo"),
     )
     sampler.save(state_path)
     print(f"  DyHPO state initialised: {state_path}")
-    print(f"  HP candidates pre-sampled: {sampler.n_candidates}")
+    print(f"  HP candidates pre-sampled: {sampler.n_candidates}, surrogate: {sampler.surrogate}")
     return state_path
 
 

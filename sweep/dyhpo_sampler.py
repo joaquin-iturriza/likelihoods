@@ -144,6 +144,11 @@ class DyHPOSampler:
         Number of random evaluations before the surrogate kicks in
     total_budget : int
         Max total evaluations before DyHPO raises
+    surrogate : str
+        'dyhpo' (deep-kernel GP, the default) or 'gp': after the same start-up
+        trials, a plain GP (Matern-5/2 ARD + noise) with expected improvement on
+        the same candidates, as tested in tools/compare_surrogates.py. Single
+        fidelity only.
     """
 
     def __init__(
@@ -155,7 +160,13 @@ class DyHPOSampler:
         output_path: str = '.',
         n_startup: int = 10,
         total_budget: int = 10_000,
+        surrogate: str = 'dyhpo',
     ):
+        if surrogate not in ('dyhpo', 'gp'):
+            raise ValueError(f"surrogate must be 'dyhpo' or 'gp', not {surrogate!r}")
+        if surrogate == 'gp' and len(fidelity_grid['t_steps']) != 1:
+            raise ValueError("surrogate 'gp' supports a single fidelity level only")
+        self.surrogate     = surrogate
         self.hp_space      = hp_space
         self.fidelity_grid = fidelity_grid
         self.n_candidates  = n_candidates
@@ -250,13 +261,43 @@ class DyHPOSampler:
         max_t_steps : if set, clamp the suggested t_steps to the highest
             fidelity level that does not exceed this value.
         """
-        hp_idx, combo = self.algorithm.suggest(exclude=self._in_flight)
+        if self.surrogate == 'gp':
+            hp_idx, combo = self._suggest_gp(), self.algorithm.all_combos[0]
+        else:
+            hp_idx, combo = self.algorithm.suggest(exclude=self._in_flight)
         self._in_flight.add(hp_idx)
         t_steps = self._from_combo(combo)
         if max_t_steps is not None and t_steps > max_t_steps:
             allowed = [t for t in self.fidelity_grid['t_steps'] if t <= max_t_steps]
             t_steps = max(allowed) if allowed else self.fidelity_grid['t_steps'][0]
         return hp_idx, self.candidates_raw[hp_idx], t_steps
+
+    def _suggest_gp(self) -> int:
+        """Start-up trials in DyHPO's order, then plain GP + expected improvement."""
+        alg = self.algorithm
+        while alg.initial_random_index < len(alg.init_conf_indices):
+            h = int(alg.init_conf_indices[alg.initial_random_index])
+            alg.initial_random_index += 1
+            if h not in self._in_flight and h not in alg.diverged_configs:
+                return h
+        from sklearn.gaussian_process import GaussianProcessRegressor
+        from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel
+        from scipy.stats import norm
+        X = alg.hp_candidates
+        hs = list(self._val_loss_history)
+        y = -np.array([min(self._val_loss_history[h].values()) for h in hs])
+        mu, sd = y.mean(), y.std() or 1.0
+        ys = list((y - mu) / sd); Xs = [X[h] for h in hs]
+        for h in alg.diverged_configs:            # a diverged trial counts as the worst result
+            Xs.append(X[h]); ys.append(min(ys))
+        gp = GaussianProcessRegressor(
+            ConstantKernel(1.0) * Matern(length_scale=np.ones(X.shape[1]), nu=2.5, length_scale_bounds=(1e-2, 1e2))
+            + WhiteKernel(0.1, (1e-4, 1)), n_restarts_optimizer=5, random_state=0).fit(np.array(Xs), np.array(ys))
+        cand = [i for i in range(len(X)) if i not in self._val_loss_history
+                and i not in alg.diverged_configs and i not in self._in_flight]
+        m, s = gp.predict(X[cand], return_std=True)
+        best = max(ys[:len(hs)]); z = (m - best) / np.maximum(s, 1e-12)
+        return cand[int(np.argmax((m - best) * norm.cdf(z) + s * norm.pdf(z)))]
 
     def observe(self, hp_idx: int, t_steps: int, val_loss: float,
                 proc_val_losses: Optional[dict] = None):
@@ -345,6 +386,7 @@ class DyHPOSampler:
             'fidelity_grid':     self.fidelity_grid,
             'n_candidates':      self.n_candidates,
             'seed':              self.seed,
+            'surrogate':         self.surrogate,
             'candidates_raw':    self.candidates_raw,
             'candidates_array':  self.candidates_array,
             'log_indicator':     self.log_indicator,
@@ -378,6 +420,7 @@ class DyHPOSampler:
         obj.fidelity_grid    = state['fidelity_grid']
         obj.n_candidates     = state['n_candidates']
         obj.seed             = state['seed']
+        obj.surrogate        = state.get('surrogate', 'dyhpo')
         obj.candidates_raw   = state['candidates_raw']
         obj.candidates_array = state['candidates_array']
         obj.log_indicator    = state['log_indicator']
