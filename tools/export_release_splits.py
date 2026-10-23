@@ -1,10 +1,11 @@
 """
 Write the exact train/val/test splits the release models were trained on, and zip them.
 
-    python tools/export_release_splits.py [--out-dir DIR]
+    python tools/export_release_splits.py [--out-dir DIR] [--model RUN_DIR ONNX ...]
 
 Runs where the data is (lxplus: `site run lxplus likelihoods -- python
-tools/export_release_splits.py`). For each model of tools/olll_release.py it
+tools/export_release_splits.py`). For each model of tools/olll_release.py (or
+each --model RUN_DIR ONNX pair, any site with the data) it
 reproduces experiment.init_data/_init_dataloader for its run config: seed-1234
 shuffle of the whole array, then train = first int(N*f_train) rows, val = the
 next int(n_train * f_val/f_train), test = the rest ([train | val | test] with
@@ -21,6 +22,7 @@ README.txt, and <out-dir>.zip.
 """
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -73,8 +75,12 @@ def check_standardization(cfg, train, onnx_path):
 
 
 def columns(data_dir, ds, n_cols):
-    csv = os.path.join(data_dir, f"{ds}.csv")
-    if os.path.exists(csv):
+    # a -lc table (tools/label_check.py) keeps the columns of the CSV it was cut from
+    stem = ds[:-3] if ds.endswith("-lc") else ds
+    cands = [os.path.join(data_dir, f"{ds}.csv")] + sorted(glob.glob(os.path.join(data_dir, "raw_*", f"{stem}.csv")))
+    for csv in cands:
+        if not os.path.exists(csv):
+            continue
         with open(csv) as f:
             head = f.readline().strip().split(",")
         if len(head) == n_cols and head[-8:] == NLL_COLS:
@@ -85,20 +91,25 @@ def columns(data_dir, ds, n_cols):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default=os.path.join(ROOT, "scratch", "release_v2_splits"))
+    ap.add_argument("--model", nargs=2, action="append", metavar=("RUN_DIR", "ONNX"),
+                    help="a run and the ONNX exported from it, instead of the release_v2 models")
+    ap.add_argument("--title", default="the release_v2 models (one per ATLAS analysis channel)")
     args = ap.parse_args()
+    models = args.model or [(os.path.join(RUNS, name), os.path.join(RUNS, name, "models", "model_with_metadata.onnx"))
+                            for name, *_ in RELEASE]
     os.makedirs(args.out_dir, exist_ok=True)
-    readme = ["Train/val/test splits used to train the release_v2 models (one per ATLAS analysis channel).",
+    readme = [f"Train/val/test splits used to train {args.title}.",
               "Each .npy is float64 rows [yields... | 8 nLL columns]; column names in <dataset>_columns.txt.",
               "Split: seed-1234 shuffle, then [train | val | test]; train = int(N*f_train),",
               "val = int(n_train*f_val/f_train), test = the rest. Verified: the train split",
               "reproduces each model's stored feature standardization.", ""]
     written = []
-    for name, *_ in RELEASE:
-        run = os.path.join(RUNS, name)
+    for run, onnx_path in models:
+        name = os.path.basename(os.path.normpath(run))
         cfg = yaml.safe_load(open(os.path.join(run, "config.yaml")))
         data_dir = cfg["data"]["data_path"]
         ds, tr, va, te = split(cfg, data_dir)
-        dm, dsd = check_standardization(cfg, tr, os.path.join(run, "models", "model_with_metadata.onnx"))
+        dm, dsd = check_standardization(cfg, tr, onnx_path)
         assert dm < 1e-6 and dsd < 1e-6, f"{name}: train split does not reproduce the model's standardization ({dm:.3g}, {dsd:.3g})"
         for tag, arr in (("train", tr), ("val", va), ("test", te)):
             p = os.path.join(args.out_dir, f"{ds}_{tag}.npy")
