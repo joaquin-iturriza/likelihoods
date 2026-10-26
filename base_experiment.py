@@ -787,7 +787,11 @@ class BaseExperiment:
             for split, split_results in dataset_results.items():  # Loop through splits (train/val/test)
                 for processing_type, metrics in split_results.items():  # Loop through raw/preprocessed
                     # Create directory for predictions if it doesn't exist
-                    if self.cfg.training.save_preds_intermediate or (step+1) == self.cfg.training.iterations:
+                    # preds are large (~70-150 MB per run) and nothing reads them back: opt-in only
+                    if self.cfg.training.save_preds_intermediate or (
+                        self.cfg.training.get("save_preds_final", False)
+                        and (step+1) == self.cfg.training.iterations
+                    ):
                         self._save_preds_intermediate(
                             step + 1, dataset, split, processing_type, metrics
                         )

@@ -34,6 +34,7 @@ training:
  save_gradients: false
  save_weights: false
  save_preds_intermediate: false
+ save_preds_final: false
  get_ID: false
 
  clip_grad_norm: 5

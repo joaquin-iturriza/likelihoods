@@ -110,29 +110,28 @@ def plot_mixer(cfg, plot_path, title, plot_dict):
 
     if cfg.plotting.delta and cfg.evaluate:
         out_names = _output_names_for_cfg(cfg)
-        # Scatter plots
-        out = f"{plot_path}/scatter.pdf"
-        with PdfPages(out) as file:
-            for idataset, dataset in enumerate(cfg.data.dataset):
-                truth_test = plot_dict["results_test"][dataset]["raw"]["truth"]
-                pred_test = plot_dict["results_test"][dataset]["raw"]["prediction"]
-                truth_train = plot_dict["results_train"][dataset]["raw"]["truth"]
-                pred_train = plot_dict["results_train"][dataset]["raw"]["prediction"]
+        # Scatter plots: ~35 MB per run (vector points), opt-in
+        if cfg.plotting.get("scatter", False):
+            out = f"{plot_path}/scatter.pdf"
+            with PdfPages(out) as file:
+                for idataset, dataset in enumerate(cfg.data.dataset):
+                    truth_test = plot_dict["results_test"][dataset]["raw"]["truth"]
+                    pred_test = plot_dict["results_test"][dataset]["raw"]["prediction"]
 
-                n_out = truth_test.shape[1]
-                nrows, ncols = _subplot_grid(n_out)
-                fig, axs = plt.subplots(nrows, ncols, figsize=(7 * ncols, 7 * nrows),
-                                        gridspec_kw={'wspace': 0.5, 'hspace': 0.5})
-                axs_flat = np.array(axs).ravel()
-                for i in range(n_out):
-                    name = out_names[i] if i < len(out_names) else f"Output {i}"
-                    plot_with_marginals(truth_test.T[i], pred_test.T[i],
-                                        f'Δ Truth', f'Δ Pred', name, ax_main=axs_flat[i])
-                for ax in axs_flat[n_out:]:
-                    ax.set_visible(False)
-                fig.suptitle(title[idataset], fontsize=16)
-                fig.savefig(file, format="pdf", bbox_inches="tight")
-                plt.close()
+                    n_out = truth_test.shape[1]
+                    nrows, ncols = _subplot_grid(n_out)
+                    fig, axs = plt.subplots(nrows, ncols, figsize=(7 * ncols, 7 * nrows),
+                                            gridspec_kw={'wspace': 0.5, 'hspace': 0.5})
+                    axs_flat = np.array(axs).ravel()
+                    for i in range(n_out):
+                        name = out_names[i] if i < len(out_names) else f"Output {i}"
+                        plot_with_marginals(truth_test.T[i], pred_test.T[i],
+                                            f'Δ Truth', f'Δ Pred', name, ax_main=axs_flat[i])
+                    for ax in axs_flat[n_out:]:
+                        ax.set_visible(False)
+                    fig.suptitle(title[idataset], fontsize=16)
+                    fig.savefig(file, format="pdf", bbox_inches="tight")
+                    plt.close()
 
         # Standard delta plots
         out = f"{plot_path}/delta.pdf"

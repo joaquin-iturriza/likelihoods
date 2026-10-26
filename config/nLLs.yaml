@@ -38,11 +38,13 @@ training:
  save_intermediate: false
  save_gradients: false
  save_preds_intermediate: false
+ save_preds_final: false # dump train/val/test preds at the last step (~100 MB/run)
 
 plot: true
 plotting:
  histograms: true
  delta: true
+ scatter: false # scatter.pdf, ~35 MB/run
  delta_prepd: true
 
 defaults:
