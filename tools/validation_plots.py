@@ -18,6 +18,7 @@ If no model files are given, all *.onnx in models_onnx/ are processed.
 import os
 import sys
 import json
+import re
 import argparse
 import numpy as np
 import onnx
@@ -124,6 +125,10 @@ def load_test_split(cfg: dict, standardization: dict, max_events: int | None):
         dataset = dataset[0]
 
     data_path = cfg["data"]["data_path"]
+    # configs written as ${oc.env:VAR,default} (release and ww_retrain configs) keep
+    # the interpolation in the stored run_config: resolve it as Hydra would
+    data_path = re.sub(r"\$\{oc\.env:([A-Za-z_]+)(?:,([^}]*))?\}",
+                       lambda m: os.environ.get(m.group(1), m.group(2) or ""), data_path)
     if not os.path.isabs(data_path):
         data_path = os.path.join(BASE_DIR, data_path)
 
