@@ -6,7 +6,8 @@ runs the model, inverts preprocessing, and generates a 2x2 residual plot:
 
     (Δ_pred - Δ_truth)  vs  Δ_truth
 
-for the four delta-nLL outputs: Expected, Observed, Expected Asimov, Observed Asimov.
+for the four delta-nLL outputs: pre-fit expected, observed, pre-fit expected Asimov,
+observed Asimov.
 
 Usage:
     python validation_plots.py [--max-events N] [--out-dir DIR] [model1.onnx ...]
@@ -28,10 +29,13 @@ from matplotlib.colors import LogNorm
 from matplotlib.ticker import ScalarFormatter
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import olll_transforms  # noqa: E402
+
 BASE_DIR      = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root (script lives in tools/)
 MODELS_ONNX   = os.path.join(BASE_DIR, "models_onnx")
 
-SUBPLOT_TITLES = ["Expected", "Observed", "Expected Asimov", "Observed Asimov"]
+SUBPLOT_TITLES = ["Pre-fit expected", "Observed", "Pre-fit expected Asimov", "Observed Asimov"]
 
 # Max test-set events used for plotting (keeps plots fast; set None to use all)
 DEFAULT_MAX_EVENTS = None
@@ -178,7 +182,7 @@ def load_test_split(cfg: dict, standardization: dict, max_events: int | None):
         pipeline=feat_pipeline if feat_pipeline else None,
     )
 
-    return features_prepd, nLLs_raw, nLL0
+    return features_prepd, nLLs_raw, nLL0, features
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +453,7 @@ def process_model(onnx_path: str, out_dir: str, max_events: int | None) -> None:
 
     # --- load test data ---
     print("  Loading test data ...")
-    features_prepd, nLLs_truth, nLL0 = load_test_split(cfg, standardization, max_events=None)
+    features_prepd, nLLs_truth, nLL0, features_raw = load_test_split(cfg, standardization, max_events=None)
     print(f"  Test events: {len(features_prepd)}")
 
     # Convert deltas to absolute nLL1 = nLL0 + delta for plots
@@ -469,6 +473,28 @@ def process_model(onnx_path: str, out_dir: str, max_events: int | None) -> None:
     nLLs_pred = inverse_preprocess_nLLs(preds_prepd, nLLs_mean, nLLs_std,
                                          pipeline=nll_pipeline, nll_bounds=nll_bounds)
     nLL1_pred = nLL0 + nLLs_pred
+
+    # --- cross-check: the same deltas through the deployed decoding
+    # (olll_transforms, as olll_publish's closure test) from this file's metadata ---
+    d = cfg["data"]
+    Xp, _, _ = olll_transforms.preprocess_features(
+        np.asarray(features_raw, dtype=np.float64), trafos=d["trafos"],
+        mean=np.asarray(standardization["features_mean"][0]),
+        std=np.asarray(standardization["features_std"][0]))
+    out = session.run(None, {i.name: (Xp.astype(np.float32) if i.name == "features"
+                                      else np.zeros(len(Xp), dtype=np.int64))
+                             for i in session.get_inputs()})[0]
+    deltas_dep = np.array([olll_transforms.undo_preprocess_nLLs(
+        o[:4].astype(np.float64), mean=nLLs_mean, std=nLLs_std,
+        trafos=d["nLL_trafos"], nll_bounds=nll_bounds or None) for o in out])
+    rel = np.abs(deltas_dep - nLLs_pred) / np.maximum(np.abs(deltas_dep), 1e-12)
+    print(f"  Deployed-decoding check: max |delta diff| = {np.abs(deltas_dep - nLLs_pred).max():.3g},"
+          f" max rel = {rel.max():.3g}")
+    mu0_meta = np.array([float(json.loads(md[k])) for k in ("nLL_exp_mu0", "nLL_obs_mu0",
+                                                 "nLLA_exp_mu0", "nLLA_obs_mu0") if k in md])
+    if len(mu0_meta) == 4:
+        print(f"  Row nLL0 vs metadata mu0: max |diff| per output = "
+              f"{np.round(np.abs(nLL0 - mu0_meta[None, :]).max(axis=0), 6).tolist()}")
 
     # --- final plots with per-dataset cuts ---
     dataset_cfg = cfg["data"]["dataset"]
