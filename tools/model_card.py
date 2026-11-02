@@ -19,11 +19,11 @@ def _get(d, path, default=None):
 
 
 TRAINING_KEYS = [
-    "data.dataset", "data.train_test_val", "data.trafos", "data.nLL_trafos", "data.asinh_scale",
+    "data.dataset", "training.train_test_val", "data.trafos", "data.nLL_trafos",
     "model._target_", "model.net._target_", "model.net.hidden_channels", "model.net.hidden_layers",
-    "model.net.activation", "model.net.dropout_prob", "model.net.use_batchnorm",
+    "model.net.activation", "model.net.dropout_prob", "model.net.batchnorm",
     "training.loss", "training.output_weights", "training.iterations", "training.batchsize",
-    "training.optimizer", "training.lr", "training.weight_decay", "training.regularization",
+    "training.optimizer", "training.lr", "training.betas", "training.weight_decay", "training.regularization",
     "training.regularization_lambda", "training.scheduler", "training.cosanneal_warmup_frac",
     "training.cosanneal_warmup_steps", "training.cosanneal_eta_min", "training.clip_grad_norm",
     "training.validate_every_n_steps", "training.es_load_best_model", "training.dtype",
