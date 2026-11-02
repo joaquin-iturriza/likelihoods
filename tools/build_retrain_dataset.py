@@ -51,6 +51,11 @@ def main():
     p.add_argument("--val-points", type=int, default=15)
     p.add_argument("--test-points", type=int, default=15)
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--old-split", type=float, nargs=3, default=[0.70, 0.15, 0.15],
+                   metavar=("TRAIN", "VAL", "TEST"),
+                   help="fractions of the old scan in train / val / test (the release models use 0.4 0.1 0.5)")
+    p.add_argument("--test-all-old", action="store_true",
+                   help="keep every held-out old row in test instead of capping them to the new-row share")
     args = p.parse_args()
 
     data_dir = os.path.join(REPO, "data")
@@ -59,9 +64,12 @@ def main():
     # ---------------------------------------------------------------- old data
     old = np.load(os.path.join(data_dir, f"{args.old}.npy"))
     old = old[rng.permutation(len(old))]
-    n_tr = int(0.70 * len(old))
-    n_va = int(0.15 * len(old))
+    f_tr, f_va, f_te = args.old_split
+    assert abs(f_tr + f_va + f_te - 1) < 1e-9, f"--old-split {args.old_split} does not sum to 1"
+    n_tr = int(f_tr * len(old))
+    n_va = int(f_va * len(old))
     old_tr, old_va, old_te = old[:n_tr], old[n_tr:n_tr+n_va], old[n_tr+n_va:]
+    print(f"old: {len(old)} rows -> train {len(old_tr)}, val {len(old_va)}, test {len(old_te)}")
 
     # ---------------------------------------------------------------- new data
     new = np.load(os.path.join(data_dir, f"{NEW}.npy"))
@@ -106,10 +114,11 @@ def main():
     # val/test: match the same new-row share by *capping the old rows* rather than
     # duplicating the new ones. Left uncapped, val would be 99.7% old data and
     # val_loss — what the sweep selects on — would be blind to the new region.
-    # Reporting on the full old set is a separate, unweighted evaluation.
+    # Reporting on the full old set is a separate, unweighted evaluation
+    # (--test-all-old writes it as the test set; val keeps the cap either way).
     cap = int(round((1 - f) / f * len(new_va)))
     val = np.concatenate([old_va[:cap], new_va])
-    cap = int(round((1 - f) / f * len(new_te)))
+    cap = len(old_te) if args.test_all_old else int(round((1 - f) / f * len(new_te)))
     test = np.concatenate([old_te[:cap], new_te])
 
     print(f"oversampling new train rows x{reps} -> {len(new_tr_os)} "
