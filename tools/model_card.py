@@ -19,7 +19,7 @@ def _get(d, path, default=None):
 
 
 TRAINING_KEYS = [
-    "data.dataset", "training.train_test_val", "data.trafos", "data.nLL_trafos",
+    "data.dataset", "data.train_test_val", "data.trafos", "data.nLL_trafos",
     "model._target_", "model.net._target_", "model.net.hidden_channels", "model.net.hidden_layers",
     "model.net.activation", "model.net.dropout_prob", "model.net.batchnorm",
     "training.loss", "training.output_weights", "training.iterations", "training.batchsize",
