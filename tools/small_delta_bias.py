@@ -44,6 +44,10 @@ def bias_table(path, data=None):
                                    nll_bounds={"lo": lo, "hi": hi} if lo is not None else {})
     print(f"=== {os.path.basename(path)} on {os.path.basename(data) if data else 'its test split'}"
           f"  ({len(truth)} rows)")
+    big = np.abs(truth) >= 1
+    rel = np.abs(pred - truth)[big.all(1)] / np.abs(truth)[big.all(1)]
+    print("  median / mean |rel err| on rows with every |delta| >= 1: " + "  ".join(
+        f"{n} {np.median(rel[:, k]) * 100:.3f}% / {rel[:, k].mean() * 100:.3f}%" for k, n in enumerate(NAMES)))
     for i in range(4):
         t, r = truth[:, i], pred[:, i] - truth[:, i]
         print(f"  {NAMES[i]}: true-delta bin   rows   median(pred-true)  mean(pred-true)")
