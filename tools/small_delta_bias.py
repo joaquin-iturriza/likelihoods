@@ -44,14 +44,14 @@ def bias_table(path, data=None):
                                    nll_bounds={"lo": lo, "hi": hi} if lo is not None else {})
     print(f"=== {os.path.basename(path)} on {os.path.basename(data) if data else 'its test split'}"
           f"  ({len(truth)} rows)")
-    for i in (0, 1):
+    for i in range(4):
         t, r = truth[:, i], pred[:, i] - truth[:, i]
         print(f"  {NAMES[i]}: true-delta bin   rows   median(pred-true)  mean(pred-true)")
         for a, b in zip(EDGES[:-1], EDGES[1:]):
             m = (t >= a) & (t < b)
             if m.any():
                 print(f"    [{a:5g}, {b:5g})  {m.sum():8d}  {np.median(r[m]):+10.4f}  {r[m].mean():+10.4f}")
-        if i == 1:
+        if i in (1, 3):
             m = t < 0
             if m.any():
                 print(f"    (< 0)          {m.sum():8d}  {np.median(r[m]):+10.4f}  {r[m].mean():+10.4f}")
