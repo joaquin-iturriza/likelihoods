@@ -136,8 +136,15 @@ def preprocess_nLLs(nLLs, trafos=None, fixed_mean=None, fixed_std=None, n_fit=No
             print("Applying nLL transformation:", fn_str)
 
             if fn_str == "standardization":
+                # pinned stats (data.fixed_stats_onnx) apply here as in the
+                # per-output path; refitting them would rescale the targets of a
+                # warm-started network
+                pinned = fixed_mean is not None and fixed_std is not None
                 nLLs, mean, std = standardization(
-                    nLLs, return_mean_std=True, clip=False, n_fit=n_fit
+                    nLLs, return_mean_std=True, clip=False, n_fit=n_fit,
+                    use_previous_mean_std=pinned,
+                    mean=np.asarray(fixed_mean, dtype=float) if pinned else None,
+                    std=np.asarray(fixed_std, dtype=float) if pinned else None,
                 )
 
             elif fn_str == "log_w_negatives":
