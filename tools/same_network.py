@@ -2,7 +2,7 @@
 compares both files' raw outputs on random standardized inputs (the base of a fine-tune
 must be the published model).
 
-    python tools/same_network.py RUN_DIR REFERENCE.onnx [--run-idx 0]
+    python tools/same_network.py RUN_DIR REFERENCE.onnx [--run-idx 0] [--set data.data_path=data ...]
 """
 import argparse
 import os
@@ -22,8 +22,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("run_dir"); p.add_argument("reference")
     p.add_argument("--run-idx", type=int, default=0)
+    p.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. data.data_path=data")
     a = p.parse_args()
-    cfg, exp, idx = load_run(a.run_dir, a.run_idx, torch.device("cpu"))
+    cfg, exp, idx = load_run(a.run_dir, a.run_idx, torch.device("cpu"), a.set)
     n = int(cfg.model.net.n_features)
     x = np.random.default_rng(0).normal(size=(1000, n)).astype(np.float32)
     with tempfile.TemporaryDirectory() as tmp:

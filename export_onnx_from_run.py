@@ -116,8 +116,9 @@ class ExportAdapter(torch.nn.Module):
         return self.model(features, global_token, global_token)
 
 
-def load_run(run_dir, run_idx, device):
-    """(cfg, experiment with the trained weights loaded, run_idx actually used)."""
+def load_run(run_dir, run_idx, device, overrides=()):
+    """(cfg, experiment with the trained weights loaded, run_idx actually used).
+    overrides: dotlist entries applied to the run's config (e.g. a data_path of another site)."""
     cfg_path = os.path.join(run_dir, f"config_{run_idx}.yaml")
     if not os.path.exists(cfg_path):
         # Retraining runs start at index 1+; find the lowest available config
@@ -130,7 +131,7 @@ def load_run(run_dir, run_idx, device):
         run_idx = candidates[0]
         cfg_path = os.path.join(run_dir, f"config_{run_idx}.yaml")
         print(f"[INFO] config_0.yaml not found; using config_{run_idx}.yaml")
-    cfg = OmegaConf.load(cfg_path)
+    cfg = OmegaConf.merge(OmegaConf.load(cfg_path), OmegaConf.from_dotlist(list(overrides)))
 
     # Recreate the experiment just enough to get preprocessing + model
     exp = nLLsExperiment(cfg, device)
