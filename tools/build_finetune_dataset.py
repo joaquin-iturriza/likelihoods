@@ -4,8 +4,9 @@ plus a replay sample of the base model's own data, written as a fixed on-disk sp
   * new rows are split by whole mass points (val/test points never trained on);
   * the replay is --old-frac of the base model's train block in train and of its val
     block in val, taken from the base split exactly as experiment.init_data makes it
-    (seed-1234 shuffle, train = int(N*f_train), val = int(n_train*f_val/f_train)), so
-    no row the base model was tested on enters training;
+    (seed-1234 shuffle, train = int(N*f_train), val = int(n_train*f_val/f_train), or the
+    on-disk train|val|test blocks of a presplit dataset), so no row the base model was
+    tested on enters training;
   * test holds the new test points only: the base model's own test block is the
     forgetting check, evaluated separately.
 
@@ -41,10 +42,12 @@ def main():
     rng = np.random.default_rng(a.seed)
 
     old, presplit = load_ordered(data_dir, a.old)
-    assert presplit is None, "the base dataset is expected to use the shuffled split"
-    f_tr, _, f_va = a.train_test_val
-    n_tr = int(len(old) * f_tr)
-    n_va = max(int(n_tr * f_va / f_tr), 1)
+    if presplit is not None:  # on-disk train|val|test: its blocks are the split
+        n_tr, n_va = presplit[0], presplit[1]
+    else:
+        f_tr, _, f_va = a.train_test_val
+        n_tr = int(len(old) * f_tr)
+        n_va = max(int(n_tr * f_va / f_tr), 1)
     old_tr, old_va = old[:n_tr], old[n_tr:n_tr + n_va]
     rep_tr = old_tr[rng.choice(n_tr, int(round(a.old_frac * n_tr)), replace=False)]
     rep_va = old_va[rng.choice(n_va, int(round(a.old_frac * n_va)), replace=False)]
