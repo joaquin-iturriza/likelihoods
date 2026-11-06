@@ -4,10 +4,11 @@ into this project's row format for one ONNX model: [model inputs in order | 8 nL
 
 The yield columns hold c + mu*s per mass point, where the mu=0 value c is not part of
 the likelihood the labels were computed with: the labels match background + mu*s in the
-SRs and the observed counts in the CRs (checked against the published models, which
-reproduce them to 1-3% where delta > 5). So each SR becomes bkg + (column - column at
-mu=0) and each CR its observed count. A header one name short of its rows (the first
-SR missing) is repaired from the model's SR order.
+SRs and the observed counts (+ mu*s where the CSV has CR columns) in the CRs (checked
+against the published models, which reproduce them to 1-3% where delta > 5). So each SR becomes bkg + (column - column at
+mu=0) and each CR its observed count (+ the column minus its mu=0 value where the CSV
+has CR columns). A header short of its rows (SR names missing, the columns otherwise in
+model order) is repaired by inserting the missing SRs in model order.
 
     python tools/convert_sm_scan.py SCAN.csv MODEL.onnx OUT.npy [--max-delta 1000]
 
@@ -32,7 +33,7 @@ def convert(scan, model, max_delta):
     if isinstance(channels, list):
         channels = {k: v for d in channels for k, v in d.items()}
     removed = set(json.loads(md.get("remove_channels") or "[]"))
-    order = [n for n, _ in json.loads(md["bkg_yields"]) if n not in removed]
+    order = [n for n, _ in json.loads(md["bkg_yields"]) if n not in removed and n.rsplit("-", 1)[0] not in removed]
     if md.get("removeCRsVRs", "false").strip('"').lower() == "true":
         order = [n for n in order if channels.get(n.rsplit("-", 1)[0]) == "SR"]
     assert len(order) == len(json.loads(md["x_min"])), "input order does not match the model"
@@ -44,12 +45,15 @@ def convert(scan, model, max_delta):
     names = [c.replace("[", "-").replace("]", "") for c in head[:i]]
     n_yields = body.shape[1] - 9
     srs = [n for n in order if channels.get(n.rsplit("-", 1)[0]) == "SR"]
-    if len(names) == n_yields - 1:
+    if len(names) < n_yields:
         missing = [n for n in srs if n not in names]
-        assert len(missing) == 1 and missing[0] == srs[0], f"cannot repair header: {missing}"
-        names = missing + names
-        print(f"header repaired: {missing[0]} prepended")
-    assert len(names) == n_yields and set(names) == set(srs), "SR columns do not match the model"
+        assert len(missing) == n_yields - len(names), f"cannot repair header: {missing}"
+        assert names == [n for n in order if n in names], "cannot repair header: names not in model order"
+        names = [n for n in order if n in names or n in missing]
+        print(f"header repaired: {missing} inserted in model order")
+    crs = [n for n in names if channels.get(n.rsplit("-", 1)[0]) != "SR"]
+    assert len(names) == n_yields and set(names) - set(crs) == set(srs) and set(crs) <= set(order), \
+        "yield columns do not match the model"
 
     y, nll, mu = body[:, :n_yields], body[:, n_yields:n_yields+8], body[:, -1]
     first = np.maximum.accumulate(np.where(mu == 0, np.arange(len(mu)), 0))
@@ -58,7 +62,10 @@ def convert(scan, model, max_delta):
     point = np.cumsum(mu == 0) - 1
 
     col = {n: k for k, n in enumerate(names)}
-    X = np.stack([bkg[n] + signal[:, col[n]] if n in col else np.full(len(y), obs[n]) for n in order], 1)
+    for n in crs:  # CR columns, where given, are the observed count plus the signal leakage
+        assert np.allclose(y[mu == 0, col[n]], obs[n]), f"{n}: CR column at mu=0 is not the observed count"
+    base = {n: obs[n] if n in crs else bkg[n] for n in names}
+    X = np.stack([base[n] + signal[:, col[n]] if n in col else np.full(len(y), obs[n]) for n in order], 1)
     delta = nll[:, 1::2] - nll[:, 0::2]
     keep = np.abs(delta).max(1) <= max_delta
     mu0 = np.array([float(json.loads(md[k])) for k in ("nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0")])
