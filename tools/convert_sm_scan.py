@@ -10,7 +10,12 @@ mu=0) and each CR its observed count (+ the column minus its mu=0 value where th
 has CR columns). A header short of its rows (SR names missing, the columns otherwise in
 model order) is repaired by inserting the missing SRs in model order.
 
-    python tools/convert_sm_scan.py SCAN.csv MODEL.onnx OUT.npy [--max-delta 1000]
+    python tools/convert_sm_scan.py SCAN.csv MODEL.onnx OUT.npy [--max-delta 1000] [--in-box]
+
+--in-box keeps only rows inside the model's training box (inputs within x_min/x_max,
+deltas at most y_max; no lower bound on the deltas, the small-signal rows are the ones
+wanted and their deltas sit at or just below the training minimum): a model with linearly standardised inputs is hundreds of
+sigma out on the scan's large-mu rows, where its loss is not finite.
 
 Also writes OUT_points.npy: the mass-point index of every row, for point-wise splits.
 """
@@ -25,7 +30,7 @@ NLL = ["nLL_exp_mu0", "nLL_exp_mu1", "nLL_obs_mu0", "nLL_obs_mu1",
        "nLLA_exp_mu0", "nLLA_exp_mu1", "nLLA_obs_mu0", "nLLA_obs_mu1"]
 
 
-def convert(scan, model, max_delta):
+def convert(scan, model, max_delta, in_box=False):
     md = {p.key: p.value for p in onnx.load(model).metadata_props}
     bkg = dict(json.loads(md["bkg_yields"]))
     obs = dict(json.loads(md["obs_yields"]))
@@ -68,6 +73,12 @@ def convert(scan, model, max_delta):
     X = np.stack([base[n] + signal[:, col[n]] if n in col else np.full(len(y), obs[n]) for n in order], 1)
     delta = nll[:, 1::2] - nll[:, 0::2]
     keep = np.abs(delta).max(1) <= max_delta
+    if in_box:
+        box = (np.all((X >= json.loads(md["x_min"])) & (X <= json.loads(md["x_max"])), 1)
+               & np.all(delta <= json.loads(md["y_max"]), 1))
+        print(f"training box keeps {box.sum()} of {len(box)} rows "
+              f"(by mu: {', '.join(f'{m:g}: {box[mu == m].sum()}/{(mu == m).sum()}' for m in np.unique(mu))})")
+        keep &= box
     mu0 = np.array([float(json.loads(md[k])) for k in ("nLL_exp_mu0", "nLL_obs_mu0", "nLLA_exp_mu0", "nLLA_obs_mu0")])
     off = np.abs(nll[:, 0::2] - mu0).max(0)
     print(f"{len(y)} rows / {point.max()+1} points; |delta| <= {max_delta:g} keeps {keep.sum()}; "
@@ -79,8 +90,9 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("scan"); p.add_argument("model"); p.add_argument("out")
     p.add_argument("--max-delta", type=float, default=1e3)
+    p.add_argument("--in-box", action="store_true", help="keep only rows inside the model's training box")
     a = p.parse_args()
-    data, point = convert(a.scan, a.model, a.max_delta)
+    data, point = convert(a.scan, a.model, a.max_delta, a.in_box)
     np.save(a.out, data)
     np.save(a.out.replace(".npy", "_points.npy"), point)
     print("wrote", a.out, data.shape)
