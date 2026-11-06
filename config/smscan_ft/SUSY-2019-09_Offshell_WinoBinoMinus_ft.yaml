@@ -63,7 +63,7 @@ training:
   max_grad_norm: null
   log_every_n_steps: 1000
   optimizer: AdamW
-  lr: 0.00022442289999999998
+  lr: 0.0002244229
   batchsize: 2048
   betas:
   - 0.9
