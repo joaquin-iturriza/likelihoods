@@ -4,6 +4,7 @@ the model trained on, and how its rows spread over bins around the 95% CL thresh
 (delta = 1.92, i.e. q = 3.84).
 
     python tools/delta_coverage.py NAME[:TRAIN_FRAC[:SUBSAMPLE]] ...
+    python tools/delta_coverage.py NAME:all ...      # every row (all splits)
 
 The train block is taken as experiment.init_data takes it (seed-1234 shuffle,
 train = min(SUBSAMPLE, int(N*TRAIN_FRAC)), or the on-disk block of a presplit set).
@@ -23,10 +24,13 @@ EDGES = [-np.inf, 0, 0.05, 0.5, 1, 1.92, 3, 5, np.inf]
 
 def coverage(spec):
     name, *rest = spec.split(":")
-    frac = float(rest[0]) if rest else 0.4
+    every = bool(rest) and rest[0] == "all"
+    frac = float(rest[0]) if rest and not every else 0.4
     sub = int(rest[1]) if len(rest) > 1 and rest[1] else None
     data, presplit = load_ordered(os.path.join(REPO, "data"), name)
-    if presplit is not None:
+    if every:
+        n_tr = len(data)
+    elif presplit is not None:
         n_tr = presplit[0]
     else:
         n_tr = int(len(data) * frac)
@@ -36,7 +40,7 @@ def coverage(spec):
     delta = nll[:, 1::2] - nll[:, 0::2]
     full = data[:, -8:].astype(np.float64)
     full_min = (full[:, 1::2] - full[:, 0::2]).min(0)
-    print(f"=== {name}: train block {n_tr} of {len(data)} rows")
+    print(f"=== {name}: {'all' if every else 'train block'} {n_tr} of {len(data)} rows, {data.shape[1]} columns")
     head = "".join(f"{f'[{a:g},{b:g})':>11s}" for a, b in zip(EDGES[:-1], EDGES[1:]))
     print(f"  {'':5s} {'min':>8s} {'q0.1%':>8s} {'q1%':>8s} {'q5%':>8s} {'min(all)':>9s}  {head}")
     for k, n in enumerate(NAMES):
